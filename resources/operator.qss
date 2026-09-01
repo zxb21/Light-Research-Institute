@@ -1,0 +1,120 @@
+* {
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", sans-serif;
+    font-size: 14px;
+    color: #142033;
+}
+
+QMainWindow, QWidget#AppShell, QWidget#OperatorRoot, QDialog {
+    background: #F3F6FA;
+}
+
+QFrame#HeaderBar {
+    background: #FFFFFF;
+    border-bottom: 1px solid #D9E1EA;
+}
+QLabel#AppTitle { font-size: 19px; font-weight: 700; color: #142033; }
+QLabel#HeaderStatus { color: #66758A; padding: 0 12px; border-left: 1px solid #D9E1EA; }
+QLabel#HeaderStatus[state="success"] { color: #16885C; }
+QLabel#HeaderStatus[state="primary"] { color: #1F6FD1; }
+QLabel#HeaderStatus[state="danger"] { color: #D83A3A; font-weight: 600; }
+QLabel#ClockLabel { color: #34445A; font-family: "Cascadia Mono", "Consolas", monospace; }
+
+QFrame#VerticalSeparator { color: #D9E1EA; }
+QLabel#MetricCaption { color: #66758A; font-size: 12px; }
+QLabel#ControlLabel { color: #34445A; font-weight: 600; }
+QLabel#CommandReason { color: #66758A; font-size: 12px; }
+
+QPushButton {
+    min-height: 34px;
+    padding: 0 14px;
+    border: 1px solid #C9D2DE;
+    border-radius: 6px;
+    background: #FFFFFF;
+    color: #26364B;
+    font-weight: 600;
+}
+QPushButton:hover { background: #F4F8FD; border-color: #7CA9DE; }
+QPushButton:pressed { background: #E8F1FB; }
+QPushButton:focus { border: 2px solid #1F6FD1; padding: 0 13px; }
+QPushButton:disabled { color: #9AA6B5; background: #F2F4F7; border-color: #DDE3EA; }
+QPushButton#PrimaryButton { color: #FFFFFF; background: #1F6FD1; border-color: #1F6FD1; }
+QPushButton#PrimaryButton:hover { background: #195FB5; }
+QPushButton#WarningButton { color: #A9680B; border-color: #D88710; background: #FFFDF8; }
+QPushButton#VentButton { color: #A9680B; border-color: #E0A13B; background: #FFFBF3; }
+QPushButton#NeutralButton { color: #405169; border-color: #AEB9C7; }
+QPushButton#HeaderButton { min-height: 30px; padding: 0 12px; color: #1F6FD1; }
+QPushButton#PrimaryButton:disabled,
+QPushButton#WarningButton:disabled,
+QPushButton#VentButton:disabled,
+QPushButton#NeutralButton:disabled {
+    color: #9AA6B5;
+    background: #F2F4F7;
+    border-color: #DDE3EA;
+}
+
+QDoubleSpinBox, QSpinBox, QLineEdit {
+    min-height: 38px;
+    padding: 0 9px;
+    background: #FFFFFF;
+    border: 1px solid #C9D2DE;
+    border-radius: 6px;
+    selection-background-color: #CFE4FB;
+}
+QDoubleSpinBox:focus, QSpinBox:focus, QLineEdit:focus { border: 2px solid #1F6FD1; }
+QDoubleSpinBox:read-only { color: #66758A; background: #F4F6F8; }
+
+QGroupBox {
+    margin-top: 15px;
+    padding: 14px 10px 10px 10px;
+    background: #FFFFFF;
+    border: 1px solid #D9E1EA;
+    border-radius: 7px;
+    font-weight: 600;
+}
+QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
+QTabWidget::pane { background: #FFFFFF; border: 1px solid #D9E1EA; }
+QTabBar::tab { min-width: 112px; padding: 9px 16px; background: #EAF0F6; color: #66758A; }
+QTabBar::tab:selected { background: #FFFFFF; color: #1F6FD1; font-weight: 600; }
+QPlainTextEdit { background: #F8FAFD; border: 1px solid #D9E1EA; font-family: "Cascadia Mono", "Consolas", monospace; }
+QLabel#HintLabel { color: #66758A; font-size: 12px; }
+QToolTip { color: #FFFFFF; background: #26364B; border: 0; padding: 5px 7px; }
+QScrollBar:vertical { width: 12px; background: #EEF2F6; margin: 0; }
+QScrollBar::handle:vertical { min-height: 28px; background: #B5C0CD; border-radius: 5px; margin: 2px; }
+QScrollBar::handle:vertical:hover { background: #8998AA; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+
+QWidget#OperatorOverview, QWidget#ProcessDetailPage { background: #EEF1F4; }
+QFrame#IndustrialPanel {
+    background: #FFFFFF;
+    border: 1px solid #C8D0D8;
+    border-radius: 4px;
+}
+QLabel#PanelTitle { color: #26364B; font-size: 16px; font-weight: 700; }
+QLabel#PanelSubTitle { color: #52657A; font-size: 13px; font-weight: 700; }
+QLabel#SystemStateValue { color: #1E3F61; font-size: 25px; font-weight: 700; }
+QLabel#SystemStateDetail { color: #52657A; font-size: 14px; }
+QLabel#IndustrialMetricValue { color: #1F344A; font-size: 23px; font-weight: 700; }
+QLabel#IndustrialMetricMeta { color: #607286; font-size: 13px; }
+QLabel#DetailTitle, QLabel#DialogTitle { color: #20364D; font-size: 20px; font-weight: 700; }
+QLabel#DetailState { color: #1F6FD1; font-size: 14px; font-weight: 700; }
+QLabel#DetailDescription, QLabel#DetailCondition, QLabel#DialogDescription {
+    color: #41566C;
+    font-size: 15px;
+    line-height: 1.5;
+}
+QListWidget#EventList {
+    border: 1px solid #D4DAE1;
+    background: #FAFBFC;
+    color: #34485D;
+    padding: 4px;
+}
+QListWidget#EventList::item { min-height: 26px; padding: 3px 8px; border-bottom: 1px solid #E7EBEF; }
+QListWidget#EventList::item:selected { background: #E5EEF7; color: #20364D; }
+QPushButton#ExportButton {
+    color: #FFFFFF;
+    background: #365D7E;
+    border-color: #365D7E;
+    font-size: 15px;
+    font-weight: 700;
+}
+QPushButton#ExportButton:hover { background: #294D6B; border-color: #294D6B; }
