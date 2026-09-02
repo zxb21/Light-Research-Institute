@@ -18,6 +18,7 @@ public:
 
     void appendPoint(const TelemetryPoint &point)
     {
+        // 保留完整采样点给步骤边界标记使用，同时拆出三个数值序列供趋势图高效读取。
         appendPoint(point.epochSec, point.vacuumPa, point.temperatureK, point.phase);
         if (!m_points.isEmpty() && m_points.constLast().epochSec == point.epochSec)
             m_points.last() = point;
@@ -25,11 +26,13 @@ public:
 
     void appendPoint(double tSec, double vacuumPa, double tempK, const QString &phase)
     {
+        // 无效时间直接忽略；趋势图依赖时间严格递增才能使用二分查找确定可见范围。
         if (tSec <= 0.0)
             return;
 
         const TelemetryPoint point { tSec, vacuumPa, tempK, phase };
 
+        // 同一采样时刻的重复更新覆盖最后一点，避免图上出现重合时间点。
         if (!m_time.isEmpty() && qAbs(tSec - m_time.constLast()) < 0.05) {
             m_vacuum.last() = vacuumPa;
             m_temp.last() = tempK;
@@ -57,11 +60,13 @@ public:
 
     void appendSample(double tSec, double vacuumPa, double tempK)
     {
+        // 兼容不携带流程阶段的旧调用；新代码优先使用 TelemetryPoint 版本。
         appendPoint(tSec, vacuumPa, tempK, QString());
     }
 
     void clear()
     {
+        // 清空仅影响界面历史图，不影响 DataLogger 已写入的磁盘数据。
         m_time.clear();
         m_vacuum.clear();
         m_temp.clear();
@@ -77,6 +82,7 @@ public:
     const TelemetryPoint &at(int index) const { return m_points.at(index); }
 
 private:
+    // 三个并行向量下标必须对应；m_points 额外保存阶段和状态等元数据。
     QVector<double> m_time;
     QVector<double> m_vacuum;
     QVector<double> m_temp;

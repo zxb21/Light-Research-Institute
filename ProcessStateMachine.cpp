@@ -11,12 +11,14 @@ constexpr double kAtmosphereSafePa = 90000.0;
 
 ProcessStateMachine::ProcessStateMachine()
 {
+    // 初始进入大气安全待机，按钮权限由 setState() 内部立即计算。
     resetLedger();
     setState(SystemState::Idle);
 }
 
 bool ProcessStateMachine::requestStart()
 {
+    // 启动必须由快照权限放行，不能只根据界面是否点击来推进。
     if (!m_snapshot.commands.canStart)
         return false;
     resetLedger();
@@ -26,6 +28,7 @@ bool ProcessStateMachine::requestStart()
 
 bool ProcessStateMachine::requestStop(double temperatureK, double pressurePa)
 {
+    // 停止前保存当前步骤为“中止”，并将第七步标记为恢复中。
     if (!m_snapshot.commands.canStop)
         return false;
     m_temperatureK = temperatureK;
@@ -39,6 +42,7 @@ bool ProcessStateMachine::requestStop(double temperatureK, double pressurePa)
 
 bool ProcessStateMachine::requestSafetyStop(const QString &reason, int deviceIndex)
 {
+    // 安全停止先冻结故障现场，之后才进入受控的安全停止状态。
     if (!m_snapshot.commands.canSafetyStop)
         return false;
 
@@ -79,6 +83,7 @@ bool ProcessStateMachine::requestReset()
 
 bool ProcessStateMachine::advanceTo(SystemState next)
 {
+    // 白名单限制自动流程只能向下一合法状态推进，避免任意跳转破坏步骤账本。
     const SystemState current = m_snapshot.state;
     bool allowed = false;
     switch (current) {
@@ -98,6 +103,7 @@ bool ProcessStateMachine::advanceTo(SystemState next)
     if (!allowed)
         return false;
 
+    // 正常流程跨步骤时，离开的步骤才标记“已完成”。
     if (isNormalActive(current) && isNormalActive(next)) {
         const ProcessStep currentStep = stepForState(current);
         const ProcessStep nextStep = stepForState(next);
@@ -116,6 +122,7 @@ bool ProcessStateMachine::advanceTo(SystemState next)
 
 void ProcessStateMachine::enterResetRequired()
 {
+    // 只有安全停止链路结束后才进入“等待复位”，普通停止不能走这里。
     if (m_snapshot.state != SystemState::SafetyStopping
         && m_snapshot.state != SystemState::Fault) {
         return;
@@ -132,6 +139,7 @@ void ProcessStateMachine::enterRecovering()
 
 void ProcessStateMachine::completeRecovery()
 {
+    // 恢复完成仍须再次确认安全条件，不能仅依赖经过了若干定时周期。
     if (m_snapshot.state != SystemState::Recovering || !isSafeForReset())
         return;
     m_snapshot.steps[stepIndex(ProcessStep::VentAndRecover)] = StepState::Completed;
@@ -147,6 +155,7 @@ void ProcessStateMachine::updateSafetyConditions(bool communicationConnected,
                                                  bool pumpsStopped,
                                                  bool mainValveClosed)
 {
+    // 控制器每周期把实际（当前为模拟）条件同步进来；通信或关键设备异常会触发安全停止。
     const bool mustSafetyStop = m_snapshot.commands.canSafetyStop
         && (!communicationConnected || !devicesHealthy);
     m_communicationConnected = communicationConnected;
@@ -167,6 +176,7 @@ void ProcessStateMachine::updateSafetyConditions(bool communicationConnected,
 
 ProcessStep ProcessStateMachine::stepForState(SystemState state)
 {
+    // 多个细分系统状态可归属于同一个用户可见步骤，例如恒温和实验运行归第六步。
     switch (state) {
     case SystemState::Preparing: return ProcessStep::Preparation;
     case SystemState::Roughing: return ProcessStep::RoughVacuum;
@@ -186,6 +196,7 @@ ProcessStep ProcessStateMachine::stepForState(SystemState state)
 
 QString ProcessStateMachine::stateText(SystemState state)
 {
+    // 顶部、摘要和日志展示用的中文状态文字；状态机判断绝不解析这些文字。
     switch (state) {
     case SystemState::Booting: return QStringLiteral("系统启动中");
     case SystemState::Idle: return QStringLiteral("待机");
@@ -210,6 +221,7 @@ QString ProcessStateMachine::stateText(SystemState state)
 
 QString ProcessStateMachine::detailText(SystemState state)
 {
+    // 操作员摘要和详情页默认说明；特殊故障说明会在调用处覆盖。
     switch (state) {
     case SystemState::Idle: return QStringLiteral("系统处于大气安全状态，可开始新任务");
     case SystemState::Preparing: return QStringLiteral("检查通信、设备和模拟安全条件");
@@ -250,6 +262,7 @@ bool ProcessStateMachine::isCoolingState(SystemState state)
 
 bool ProcessStateMachine::isSafeForReset() const
 {
+    // 模拟版安全复位条件；真实硬件接入后应由硬件联锁与控制器策略重新定义。
     return m_communicationConnected && m_devicesHealthy && m_outputsSafe
         && m_pumpsStopped && m_mainValveClosed
         && m_temperatureK >= kSafeTemperatureK && m_pressurePa >= kAtmosphereSafePa;
@@ -257,6 +270,7 @@ bool ProcessStateMachine::isSafeForReset() const
 
 void ProcessStateMachine::setState(SystemState state)
 {
+    // 统一维护：系统状态、当前步骤、步骤图状态和可显示文字，避免各调用点遗漏刷新。
     m_snapshot.state = state;
     if (state != SystemState::SafetyStopping && state != SystemState::Fault
         && state != SystemState::ResetRequired && state != SystemState::Idle) {
@@ -276,6 +290,7 @@ void ProcessStateMachine::setState(SystemState state)
 
 void ProcessStateMachine::resetLedger()
 {
+    // 开始新任务或复位时清空七步骤的显示账本。
     m_snapshot.steps.fill(StepState::Pending);
     m_snapshot.currentStep = ProcessStep::Preparation;
     m_snapshot.progressPercent = 0;
@@ -283,6 +298,7 @@ void ProcessStateMachine::resetLedger()
 
 void ProcessStateMachine::refreshSnapshot()
 {
+    // 将内部安全条件转换为界面可直接使用的按钮权限和提示原因。
     CommandAvailability commands;
     commands.canStart = m_snapshot.state == SystemState::Idle && isSafeForReset();
     commands.canStop = isNormalActive(m_snapshot.state);
@@ -328,6 +344,7 @@ void ProcessStateMachine::refreshSnapshot()
     }
     m_snapshot.commands = commands;
 
+    // 进度按“完成、进行中、恢复中”的步骤数估算，不代表真实物理过程百分比。
     int progressUnits = 0;
     for (StepState step : m_snapshot.steps) {
         if (step == StepState::Completed || step == StepState::Active

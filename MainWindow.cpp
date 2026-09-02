@@ -26,6 +26,7 @@ namespace {
 
 void setStateProperty(QWidget *widget, const QString &state)
 {
+    // QSS 按 state 属性选择颜色。手动刷新样式是为了让运行中属性变化立即生效。
     if (!widget || widget->property("state").toString() == state)
         return;
     widget->setProperty("state", state);
@@ -43,6 +44,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_system(new MockSystem(this))
     , m_logger(new DataLogger(this))
 {
+    // 自定义结构经信号跨对象传递前需要注册，避免 Qt 只能识别基础类型。
     qRegisterMetaType<SystemState>();
     qRegisterMetaType<ProcessStep>();
     qRegisterMetaType<ProcessSnapshot>();
@@ -50,6 +52,7 @@ MainWindow::MainWindow(QWidget *parent)
     qRegisterMetaType<AlarmStatus>();
     qRegisterMetaType<TelemetryPoint>();
 
+    // 全局外观来自资源文件；布局代码只负责结构，颜色和字体优先在 QSS 中修改。
     QFile styleFile(QStringLiteral(":/cryo/resources/operator.qss"));
     if (styleFile.open(QIODevice::ReadOnly))
         qApp->setStyleSheet(QString::fromUtf8(styleFile.readAll()));
@@ -58,6 +61,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1280, 800);
     setMinimumSize(1280, 800);
 
+    // 窗口固定由“顶部栏 + 可切换的主内容”组成。
     auto *shell = new QWidget(this);
     shell->setObjectName(QStringLiteral("AppShell"));
     auto *shellLayout = new QVBoxLayout(shell);
@@ -65,11 +69,13 @@ MainWindow::MainWindow(QWidget *parent)
     shellLayout->setSpacing(0);
     buildHeaderBar(shellLayout);
     m_stack = new QStackedWidget(shell);
+    // 页面索引约定必须与 setEngineerMode() 一致。
     m_stack->addWidget(m_operator);
     m_stack->addWidget(m_engineer);
     shellLayout->addWidget(m_stack, 1);
     setCentralWidget(shell);
 
+    // 顶部时钟与控制器无关，独立每秒刷新一次。
     connect(m_clockTimer, &QTimer::timeout, this, &MainWindow::updateClock);
     m_clockTimer->start(1000);
     updateClock();
@@ -79,12 +85,14 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    // 退出前主动刷盘，减少最后一批遥测和日志停留在内存中的风险。
     m_logger->flush();
     QMainWindow::closeEvent(event);
 }
 
 void MainWindow::buildHeaderBar(QVBoxLayout *shellLayout)
 {
+    // 顶部栏仅显示全局信息，不承载流程页面内部的控件。
     auto *header = new QFrame(this);
     header->setObjectName(QStringLiteral("HeaderBar"));
     header->setFixedHeight(56);
@@ -133,6 +141,7 @@ void MainWindow::updateClock()
 
 void MainWindow::onHeartbeat(bool connected)
 {
+    // 心跳与通信状态目前都复用同一显示位置；真实控制器可分别发布更精确状态。
     m_communicationLabel->setText(connected ? QStringLiteral("●  通信正常")
                                              : QStringLiteral("●  通信中断"));
     setStateProperty(m_communicationLabel,
@@ -151,6 +160,7 @@ void MainWindow::onAlarmChanged(const AlarmStatus &alarm)
 
 void MainWindow::onToggleModeClicked()
 {
+    // 从工程师模式返回操作员模式不需要再次输入密码。
     if (m_engineerMode) {
         setEngineerMode(false);
         return;
@@ -163,6 +173,7 @@ void MainWindow::onToggleModeClicked()
     if (!accepted)
         return;
 
+    // 工程师模式密码是已确认的现有业务规则；没有明确需求时不要在此修改。
     if (password == QStringLiteral("888888")) {
         setEngineerMode(true);
     } else {
@@ -173,6 +184,7 @@ void MainWindow::onToggleModeClicked()
 
 void MainWindow::setEngineerMode(bool enabled)
 {
+    // 只切换可见页面和顶部文字，不创建或销毁页面，因此两页状态会保留。
     m_engineerMode = enabled;
     m_stack->setCurrentIndex(enabled ? 1 : 0);
     m_modeLabel->setText(enabled ? QStringLiteral("●  工程师模式")
@@ -183,6 +195,7 @@ void MainWindow::setEngineerMode(bool enabled)
 
 void MainWindow::wireSystem()
 {
+    // 第一段：操作员的高层请求 → 控制器。界面不直接操作 MockSystem 的内部变量。
     connect(m_operator, &OperatorWidget::startRequested,
             m_system, &SystemController::requestStart);
     connect(m_operator, &OperatorWidget::stopRequested,
@@ -192,6 +205,7 @@ void MainWindow::wireSystem()
     connect(m_operator, &OperatorWidget::dataExportRequested,
             m_logger, &DataLogger::exportInteractive);
 
+    // 第二段：控制器聚合数据 → 操作员界面刷新。
     connect(m_system, &SystemController::processSnapshotChanged,
             m_operator, &OperatorWidget::onProcessSnapshot);
     connect(m_system, &SystemController::telemetryReady,
@@ -207,6 +221,7 @@ void MainWindow::wireSystem()
     connect(m_system, &SystemController::alarmChanged,
             this, &MainWindow::onAlarmChanged);
 
+    // 第三段：每条样本和日志同时进入数据记录与可见日志区。
     connect(m_system, &SystemController::sampleReady,
             m_logger, &DataLogger::onSampleReady);
     connect(m_system, &SystemController::logMessage,
@@ -214,6 +229,7 @@ void MainWindow::wireSystem()
     connect(m_system, &SystemController::logMessage,
             m_operator, &OperatorWidget::onLogMessage);
 
+    // 第四段：工程师页需要更细粒度的原始状态和手动控制回显。
     connect(m_system, &SystemController::vacuumChanged,
             m_engineer, &EngineerWidget::onVacuumChanged);
     connect(m_system, &SystemController::temperatureChanged,
@@ -243,6 +259,7 @@ void MainWindow::wireSystem()
     connect(m_system, &SystemController::logMessage,
             m_engineer, &EngineerWidget::onLogMessage);
 
+    // 第五段：工程师页的手动请求仍要经控制器处理，避免绕过未来硬件联锁。
     connect(m_engineer, &EngineerWidget::gateValveSet,
             m_system, &SystemController::setGateValve);
     connect(m_engineer, &EngineerWidget::foreValveSet,

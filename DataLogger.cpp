@@ -14,6 +14,7 @@ namespace {
 
 QString csvEscape(const QString &value)
 {
+    // CSV 中的逗号、双引号和换行必须转义，避免阶段或日志文字破坏列结构。
     QString escaped = value;
     escaped.replace(QStringLiteral("\""), QStringLiteral("\"\""));
     if (escaped.contains(QLatin1Char(',')) || escaped.contains(QLatin1Char('"'))
@@ -25,6 +26,7 @@ QString csvEscape(const QString &value)
 
 bool writeHeader(QFile &file, const QByteArray &header)
 {
+    // 写入 UTF-8 标记，便于 Windows 表格软件直接识别中文列名和内容。
     return file.write("\xEF\xBB\xBF") == 3 && file.write(header) == header.size();
 }
 
@@ -33,6 +35,7 @@ bool writeHeader(QFile &file, const QByteArray &header)
 DataLogger::DataLogger(QObject *parent)
     : QObject(parent)
 {
+    // 默认数据目录跟随可执行程序；每 30 秒刷盘一次，退出时还会由 MainWindow 再刷一次。
     m_autoDirectory = QDir(QCoreApplication::applicationDirPath())
                           .filePath(QStringLiteral("data_logs"));
 
@@ -49,6 +52,7 @@ void DataLogger::setAutoSaveEnabled(bool enabled)
 
 void DataLogger::setAutoSaveDirectory(const QString &directory)
 {
+    // 已创建会话后不允许切换目录，避免一次运行的数据被拆分到两个位置。
     if (!m_runDirectory.isEmpty())
         return;
     m_autoDirectory = directory;
@@ -66,6 +70,7 @@ QString DataLogger::currentRunDirectory() const
 
 bool DataLogger::ensureAutoSession()
 {
+    // 只有真正出现数据或事件时才建目录，空启动不会产生无意义运行记录。
     if (!m_autoSaveEnabled)
         return false;
     if (!m_runDirectory.isEmpty())
@@ -73,6 +78,7 @@ bool DataLogger::ensureAutoSession()
     if (!QDir().mkpath(m_autoDirectory))
         return false;
 
+    // 一次运行对应一个时间戳目录，四类文件在同一目录中便于整体导出与追溯。
     m_runDirectory = QDir(m_autoDirectory).filePath(
         QStringLiteral("run_%1").arg(makeTimestamp()));
     if (!QDir().mkpath(m_runDirectory)) {
@@ -83,6 +89,7 @@ bool DataLogger::ensureAutoSession()
     m_telemetryFile.setFileName(QDir(m_runDirectory).filePath(QStringLiteral("telemetry.csv")));
     m_eventsFile.setFileName(QDir(m_runDirectory).filePath(QStringLiteral("events.csv")));
     m_diagnosticsFile.setFileName(QDir(m_runDirectory).filePath(QStringLiteral("diagnostics.log")));
+    // 三个连续追加文件必须全部打开成功；任一失败就关闭已打开文件并放弃本次会话。
     if (!m_telemetryFile.open(QIODevice::WriteOnly | QIODevice::Append)
         || !m_eventsFile.open(QIODevice::WriteOnly | QIODevice::Append)
         || !m_diagnosticsFile.open(QIODevice::WriteOnly | QIODevice::Append)) {
@@ -102,6 +109,7 @@ bool DataLogger::ensureAutoSession()
         return false;
     }
 
+    // 元数据一次性安全提交，避免程序中断时产生半写入的 JSON 文件。
     QSaveFile metadata(QDir(m_runDirectory).filePath(QStringLiteral("metadata.json")));
     if (metadata.open(QIODevice::WriteOnly)) {
         const QJsonObject object {
@@ -119,6 +127,7 @@ bool DataLogger::ensureAutoSession()
 void DataLogger::onSampleReady(double epochSec, double vacuumPa, double tempK,
                                const QString &phase)
 {
+    // 每条遥测写入时间、温度、压强和阶段；这是文本导出的主要数据来源。
     if (!ensureAutoSession())
         return;
 
@@ -133,6 +142,7 @@ void DataLogger::onSampleReady(double epochSec, double vacuumPa, double tempK,
 
 void DataLogger::appendEvent(const QString &severity, const QString &message)
 {
+    // 事件与遥测分文件保存，便于既按时间画趋势，也按事件定位操作。
     if (!ensureAutoSession())
         return;
     const QString row = QStringLiteral("%1,%2,%3\n")
@@ -153,6 +163,7 @@ void DataLogger::appendLog(const QString &message)
 
 bool DataLogger::copyFile(const QString &sourcePath, const QString &targetPath)
 {
+    // 用 QSaveFile 输出副本，避免导出目标被意外中断后留下损坏文件。
     QFile source(sourcePath);
     if (!source.open(QIODevice::ReadOnly))
         return false;
@@ -165,6 +176,7 @@ bool DataLogger::copyFile(const QString &sourcePath, const QString &targetPath)
 
 void DataLogger::exportInteractive()
 {
+    // 选择遥测文件名后，同时导出同批次的事件、元数据和诊断文件。
     if (m_runDirectory.isEmpty())
         return;
     flush();
@@ -186,6 +198,7 @@ void DataLogger::exportInteractive()
 
 void DataLogger::flush()
 {
+    // 只刷新已打开文件，未开始运行时调用也是安全的。
     if (m_telemetryFile.isOpen())
         m_telemetryFile.flush();
     if (m_eventsFile.isOpen())

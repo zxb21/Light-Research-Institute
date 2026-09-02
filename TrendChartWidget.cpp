@@ -30,6 +30,7 @@ TrendChartWidget::TrendChartWidget(Mode mode, QWidget *parent)
     : QWidget(parent)
     , m_mode(mode)
 {
+    // 图表不保存样本，只保存对 TelemetryStore 的只读引用。
     setMinimumSize(240, 150);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     setAttribute(Qt::WA_OpaquePaintEvent);
@@ -37,12 +38,14 @@ TrendChartWidget::TrendChartWidget(Mode mode, QWidget *parent)
 
 void TrendChartWidget::setStore(const TelemetryStore *store)
 {
+    // 数据进入 TelemetryStore 后由 OperatorWidget 调用这里，随后重绘。
     m_store = store;
     update();
 }
 
 void TrendChartWidget::setMode(Mode mode)
 {
+    // 同一控件复用为温度、压强或双曲线，切换步骤时不需要重建控件。
     if (m_mode == mode)
         return;
     m_mode = mode;
@@ -78,6 +81,7 @@ double TrendChartWidget::adaptiveSpan(double totalSeconds) const
 
 double TrendChartWidget::niceTimeStep(double spanSeconds)
 {
+    // 从固定的易读刻度中选取最多约六条网格线的间隔。
     static const double kSteps[] = {
         1.0, 2.0, 5.0, 10.0, 15.0, 30.0,
         60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0
@@ -91,6 +95,7 @@ double TrendChartWidget::niceTimeStep(double spanSeconds)
 
 double TrendChartWidget::niceTempStep(double range)
 {
+    // 温度轴也选择易读整数刻度，避免根据数据范围出现难读的小数间隔。
     static const double kSteps[] = { 5.0, 10.0, 20.0, 25.0, 50.0, 100.0 };
     for (double s : kSteps) {
         if (range / s <= 6.0)
@@ -101,26 +106,8 @@ double TrendChartWidget::niceTempStep(double range)
 
 QString TrendChartWidget::formatPressureTick(double pa)
 {
-    if (pa <= 0.0 || !std::isfinite(pa))
-        return QString();
-
-    const int exponent = static_cast<int>(std::floor(std::log10(pa)));
-    const double coefficient = pa / std::pow(10.0, exponent);
-    const double rounded = std::round(coefficient);
-    const QString coefficientText = std::abs(coefficient - rounded) < 0.05
-        ? QString::number(static_cast<int>(rounded))
-        : QString::number(coefficient, 'f', 1);
-
-    static const QChar superscripts[] = {
-        QChar(0x2070), QChar(0x00B9), QChar(0x00B2), QChar(0x00B3), QChar(0x2074),
-        QChar(0x2075), QChar(0x2076), QChar(0x2077), QChar(0x2078), QChar(0x2079)
-    };
-    QString exponentText;
-    if (exponent < 0)
-        exponentText.append(QChar(0x207B));
-    for (QChar digit : QString::number(std::abs(exponent)))
-        exponentText.append(superscripts[digit.digitValue()]);
-    return coefficientText + QStringLiteral("×10") + exponentText;
+    // 为兼容已有趋势图调用保留；实际格式规则唯一来源是 formatPressure()。
+    return formatPressure(pa);
 }
 
 QString TrendChartWidget::formatTimeTick(double epochSeconds, double visibleSpanSeconds)
@@ -134,6 +121,7 @@ QString TrendChartWidget::formatTimeTick(double epochSeconds, double visibleSpan
 
 double TrendChartWidget::normalizedLogPressure(double pa, double minPa, double maxPa)
 {
+    // 对数坐标将跨数量级的压强压缩到 0–1 区间；非法范围返回无效数而非画错位置。
     if (pa <= 0.0 || minPa <= 0.0 || maxPa <= minPa)
         return std::numeric_limits<double>::quiet_NaN();
     return (std::log10(pa) - std::log10(minPa))
@@ -142,6 +130,7 @@ double TrendChartWidget::normalizedLogPressure(double pa, double minPa, double m
 
 void TrendChartWidget::paintEvent(QPaintEvent *)
 {
+    // 自绘完整流程：确定可见窗口 → 计算坐标范围 → 画网格/标注 → 画步骤边界和曲线。
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
@@ -149,6 +138,7 @@ void TrendChartWidget::paintEvent(QPaintEvent *)
     const QRectF full = rect();
     p.fillRect(full, kBackground);
 
+    // 双曲线需要右侧压强轴，单曲线只保留紧凑右边距。
     const double rightMargin = m_mode == Mode::Combined ? kCombinedRight : kSingleRight;
     const QRectF plot = full.adjusted(kLeft, kTop, -rightMargin, -kBottom);
     if (plot.width() < 20.0 || plot.height() < 20.0)
@@ -239,6 +229,7 @@ void TrendChartWidget::paintEvent(QPaintEvent *)
         }
     }
 
+    // 以下三个局部函数把物理值映射为图框像素坐标。
     auto mapX = [&](double sec) -> double {
         return plot.left() + (sec - start) / (end - start) * plot.width();
     };
@@ -388,6 +379,7 @@ void TrendChartWidget::paintEvent(QPaintEvent *)
     }
 
     // ---------- 曲线 ----------
+    // 通用画线过程：必要时对数据抽样，填充半透明面积，并标记最后一个读数。
     auto drawCurve = [&](const QVector<double> &values, bool logarithmic,
                          const QColor &color) {
         if (drawTo < drawFrom || !m_store)
@@ -396,6 +388,7 @@ void TrendChartWidget::paintEvent(QPaintEvent *)
         QPainterPath line;
         bool started = false;
         QPointF lastPoint;
+        // 数据点远多于像素时抽样，减少无意义的重复绘制而保持趋势形状。
         const int pointStep = std::max(1, (drawTo - drawFrom + 1)
                                            / std::max(1, static_cast<int>(plot.width() * 2.0)));
         for (int i = drawFrom; i <= drawTo; i += pointStep) {

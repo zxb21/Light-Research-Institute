@@ -18,6 +18,7 @@ class TrendChartWidget : public QWidget
     Q_OBJECT
 
 public:
+    // 详情页根据当前步骤选择的曲线组合。
     enum class Mode {
         Temperature,
         Pressure,
@@ -26,8 +27,10 @@ public:
 
     explicit TrendChartWidget(Mode mode = Mode::Combined, QWidget *parent = nullptr);
 
+    // 注入只读遥测缓存和显示模式；两者变化后都触发重新绘制。
     void setStore(const TelemetryStore *store);
     void setMode(Mode mode);
+    // 保留趋势图的原有入口；实际转调 SystemTypes.h 的 formatPressure()。
     static QString formatPressureTick(double pa);
     static QString formatTimeTick(double epochSeconds, double visibleSpanSeconds);
     static double normalizedLogPressure(double pa, double minPa, double maxPa);
@@ -44,6 +47,7 @@ private:
     static double niceTimeStep(double spanSeconds);
     static double niceTempStep(double range);
 
+    // 当前绘图模式及不拥有所有权的遥测缓存指针。
     Mode m_mode = Mode::Combined;
     const TelemetryStore *m_store = nullptr;
 };

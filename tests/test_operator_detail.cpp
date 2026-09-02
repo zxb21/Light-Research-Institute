@@ -2,7 +2,9 @@
 #include "OperatorWidget.h"
 #include "TrendChartWidget.h"
 
+#include <QDoubleSpinBox>
 #include <QLabel>
+#include <QListWidget>
 #include <QtTest>
 
 class OperatorDetailTest : public QObject
@@ -11,6 +13,8 @@ class OperatorDetailTest : public QObject
 
 private slots:
     void dianJiMeiGeBuZhouXianShiDuiYingXiangQing();
+    void jiangWenSuLvDanCiDiaoJieWeiLingDianWu();
+    void zongLanYunXingJiLuBaoLiuLiShiXiaoXi();
 };
 
 void OperatorDetailTest::dianJiMeiGeBuZhouXianShiDuiYingXiangQing()
@@ -53,6 +57,44 @@ void OperatorDetailTest::dianJiMeiGeBuZhouXianShiDuiYingXiangQing()
         QCOMPARE(title->text(), QStringLiteral("流程详情：%1").arg(detail.name));
         QCOMPARE(chart->accessibleName(), detail.trendName);
     }
+}
+
+void OperatorDetailTest::jiangWenSuLvDanCiDiaoJieWeiLingDianWu()
+{
+    OperatorWidget widget;
+    auto *coolingRate = widget.findChild<QDoubleSpinBox *>();
+    QVERIFY(coolingRate);
+
+    coolingRate->setValue(1.0);
+    QTest::keyClick(coolingRate, Qt::Key_Up);
+    QCOMPARE(coolingRate->value(), 1.5);
+}
+
+void OperatorDetailTest::zongLanYunXingJiLuBaoLiuLiShiXiaoXi()
+{
+    OperatorWidget widget;
+    const QList<QListWidget *> eventLists = widget.findChildren<QListWidget *>();
+    QVERIFY(eventLists.size() >= 2);
+    QListWidget *overviewEvents = nullptr;
+    for (QListWidget *eventList : eventLists) {
+        if (eventList->count() == 1
+            && eventList->item(0)->text() == QStringLiteral("等待自动流程启动")) {
+            overviewEvents = eventList;
+            break;
+        }
+    }
+    QVERIFY(overviewEvents);
+
+    widget.onLogMessage(QStringLiteral("记录 1"));
+    widget.onLogMessage(QStringLiteral("记录 2"));
+    widget.onLogMessage(QStringLiteral("记录 3"));
+    widget.onLogMessage(QStringLiteral("记录 4"));
+    widget.onLogMessage(QStringLiteral("记录 5"));
+    widget.onLogMessage(QStringLiteral("记录 6"));
+
+    QCOMPARE(overviewEvents->count(), 6);
+    QCOMPARE(overviewEvents->item(0)->text(), QStringLiteral("记录 1"));
+    QCOMPARE(overviewEvents->item(5)->text(), QStringLiteral("记录 6"));
 }
 
 QTEST_MAIN(OperatorDetailTest)

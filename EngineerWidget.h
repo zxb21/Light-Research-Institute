@@ -20,6 +20,8 @@ class QTabWidget;
 //   Tab2 IO 与诊断：DI 状态 / 传感器模拟量 / 原始报文日志
 //   Tab3 系统参数：真空门限与升降温度速率
 // ============================================================================
+// 工程师调试后台：提供手动控制、诊断回显和模拟参数设置。
+// 操作员模式不会展示本控件；切换权限由 MainWindow 管理。
 class EngineerWidget : public QWidget
 {
     Q_OBJECT
@@ -31,6 +33,7 @@ public:
     static constexpr int kSnsCount = 6;
 
 signals:
+    // 手动操作和参数修改请求，均由 MainWindow 转交给 SystemController。
     void gateValveSet(bool open);
     void foreValveSet(bool open);
     void ventValveSet(bool open);
@@ -44,6 +47,7 @@ signals:
     void configResetRequested();
 
 public slots:
+    // 控制器状态回显入口；这些槽不应反向决定控制流程。
     void onGateValveChanged(bool open);
     void onForeValveChanged(bool open);
     void onVentValveChanged(bool open);
@@ -60,6 +64,7 @@ public slots:
     void onPhaseChanged(const QString &phase);
 
 private:
+    // 一组阀门控件，便于构建和回显时同时访问状态灯与两个按钮。
     struct ValveRow {
         QLabel *led = nullptr;
         QPushButton *onBtn = nullptr;

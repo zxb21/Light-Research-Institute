@@ -5,6 +5,8 @@
 
 #include <QObject>
 
+// 界面与控制实现之间的稳定边界。
+// MainWindow 只认识本接口；MockSystem 或未来真实控制器都必须实现这些槽并发布这些信号。
 class SystemController : public QObject
 {
     Q_OBJECT
@@ -14,12 +16,14 @@ public:
     ~SystemController() override = default;
 
 signals:
+    // 面向操作员界面的聚合数据。
     void processSnapshotChanged(const ProcessSnapshot &snapshot);
     void telemetryReady(const TelemetryPoint &point);
     void deviceStatusChanged(const DeviceStatus &device);
     void communicationChanged(bool connected);
     void alarmChanged(const AlarmStatus &alarm);
 
+    // 面向工程师界面的细粒度状态、原始读数和日志。
     void vacuumChanged(double pa);
     void temperatureChanged(double k);
     void phaseChanged(const QString &text);
@@ -40,6 +44,7 @@ signals:
     void logMessage(const QString &message);
 
 public slots:
+    // 所有控制请求均从界面进入控制器；真实硬件安全联锁应在具体实现中完成。
     virtual void requestStart(double coolingRateKPerMin) = 0;
     virtual void requestStop() = 0;
     virtual void requestSafetyStop() = 0;

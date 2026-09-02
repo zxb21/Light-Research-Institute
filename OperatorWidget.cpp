@@ -23,6 +23,7 @@ namespace {
 
 QLabel *makeLabel(const QString &text, const char *objectName, QWidget *parent = nullptr)
 {
+    // objectName 是 QSS 定位样式的名字；要改这一类标签外观可在 operator.qss 中搜索它。
     auto *result = new QLabel(text, parent);
     result->setObjectName(QLatin1String(objectName));
     return result;
@@ -30,6 +31,7 @@ QLabel *makeLabel(const QString &text, const char *objectName, QWidget *parent =
 
 QString stepName(ProcessStep step)
 {
+    // 七步骤中文标题集中在这里；改流程栏和详情标题文字时修改此表。
     static const QStringList names = {
         QStringLiteral("系统准备"),
         QStringLiteral("粗抽真空（干泵）"),
@@ -44,6 +46,7 @@ QString stepName(ProcessStep step)
 
 QString stepDescription(ProcessStep step)
 {
+    // 详情页“本步骤工作”的固定说明；不参与状态机判断。
     switch (step) {
     case ProcessStep::Preparation:
         return QStringLiteral("确认通信、真空计、温控仪和保护条件正常。系统满足启动条件后，自动进入粗抽真空。");
@@ -65,6 +68,7 @@ QString stepDescription(ProcessStep step)
 
 QString stepCondition(const ProcessSnapshot &snapshot)
 {
+    // 详情页条件优先显示故障、运行、放空等特殊状态，其余情况复用控制器描述。
     if (snapshot.state == SystemState::Fault || snapshot.state == SystemState::ResetRequired)
         return QStringLiteral("当前条件：存在故障或复位条件，自动流程已停止。请检查设备事件记录。");
     if (snapshot.state == SystemState::Running)
@@ -89,6 +93,7 @@ QString stepStateText(StepState state)
 
 TrendChartWidget::Mode trendMode(ProcessStep step)
 {
+    // 每步只显示与操作相关的曲线，主界面本身不绘制实时趋势。
     switch (step) {
     case ProcessStep::RoughVacuum:
     case ProcessStep::HighVacuum:
@@ -106,6 +111,7 @@ TrendChartWidget::Mode trendMode(ProcessStep step)
 
 QString trendTitle(ProcessStep step)
 {
+    // 与 trendMode() 保持成对修改，避免标题与实际图表模式不一致。
     switch (step) {
     case ProcessStep::RoughVacuum:
     case ProcessStep::HighVacuum:
@@ -141,6 +147,7 @@ OperatorWidget::OperatorWidget(QWidget *parent)
     : QWidget(parent)
     , m_store(new TelemetryStore)
 {
+    // 内部页面只构建一次；点击步骤时通过 m_pages 切换，而不是创建新窗口。
     setObjectName(QStringLiteral("OperatorRoot"));
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -160,6 +167,7 @@ OperatorWidget::OperatorWidget(QWidget *parent)
 
 QWidget *OperatorWidget::buildOverviewPage()
 {
+    // 总览是“左流程、右信息”的水平布局。布局尺寸修改优先从本函数开始找。
     auto *page = new QWidget(this);
     page->setObjectName(QStringLiteral("OperatorOverview"));
     auto *root = new QHBoxLayout(page);
@@ -167,13 +175,16 @@ QWidget *OperatorWidget::buildOverviewPage()
     root->setSpacing(14);
 
     m_processFlow = new ProcessFlowWidget(page);
+    // 左侧流程固定宽度，防止七个中文步骤名称被右侧区域挤压。
     m_processFlow->setFixedWidth(370);
+    // 流程控件只发出步骤编号；页面切换由本类统一处理。
     connect(m_processFlow, &ProcessFlowWidget::stepActivated,
             this, &OperatorWidget::showProcessDetail);
     root->addWidget(m_processFlow);
 
     auto *right = new QVBoxLayout;
     right->setSpacing(12);
+    // 右侧从上到下：摘要、设备状态、事件、控制区。
     right->addWidget(buildSystemStatusPanel());
 
     auto *healthPanel = new QFrame(page);
@@ -204,6 +215,7 @@ QWidget *OperatorWidget::buildOverviewPage()
 
 QWidget *OperatorWidget::buildSystemStatusPanel()
 {
+    // 摘要区的标签在 refreshSummary() 中更新；这里仅决定三栏布局和初始样式名。
     auto *panel = new QFrame(this);
     panel->setObjectName(QStringLiteral("IndustrialPanel"));
     panel->setMinimumHeight(158);
@@ -227,6 +239,7 @@ QWidget *OperatorWidget::buildSystemStatusPanel()
     separator->setFrameShape(QFrame::VLine);
     layout->addWidget(separator);
 
+    // 温度与真空使用相同的“标题 + 数值 + 两行说明”结构，避免重复创建布局代码。
     const auto addMetric = [panel, layout](const QString &title, QLabel *&value,
                                             QLabel *&lineOne, QLabel *&lineTwo) {
         auto *block = new QVBoxLayout;
@@ -256,6 +269,7 @@ QWidget *OperatorWidget::buildSystemStatusPanel()
 
 QWidget *OperatorWidget::buildControlPanel()
 {
+    // 控制区只保留操作员允许的三项操作；按钮可用性由 refreshCommands() 决定。
     auto *panel = new QFrame(this);
     panel->setObjectName(QStringLiteral("IndustrialPanel"));
     panel->setMinimumHeight(144);
@@ -269,7 +283,8 @@ QWidget *OperatorWidget::buildControlPanel()
     m_coolingRate = new QDoubleSpinBox(panel);
     m_coolingRate->setRange(0.1, 5.0);
     m_coolingRate->setDecimals(1);
-    m_coolingRate->setSingleStep(0.1);
+    // 修改操作员每次点箭头增加多少温度速率，在这里调整。
+    m_coolingRate->setSingleStep(0.5);
     m_coolingRate->setValue(1.0);
     m_coolingRate->setSuffix(QStringLiteral(" K/min"));
     m_coolingRate->setMinimumWidth(132);
@@ -300,6 +315,7 @@ QWidget *OperatorWidget::buildControlPanel()
     exportButton->setMinimumSize(220, 46);
     footerRow->addWidget(exportButton);
     layout->addLayout(footerRow);
+    // 点击后只发请求；控制器检查安全条件后才会真正推进流程。
     connect(m_startButton, &QPushButton::clicked, this, [this] {
         emit startRequested(m_coolingRate->value());
     });
@@ -315,6 +331,7 @@ QWidget *OperatorWidget::buildControlPanel()
 
 QWidget *OperatorWidget::buildDetailPage()
 {
+    // 详情页固定为：顶部返回栏、左说明/条件、右趋势或检查结果、底部事件记录。
     auto *page = new QWidget(this);
     page->setObjectName(QStringLiteral("ProcessDetailPage"));
     auto *root = new QVBoxLayout(page);
@@ -364,6 +381,7 @@ QWidget *OperatorWidget::buildDetailPage()
     trendLayout->setSpacing(6);
     m_detailTrendTitle = makeLabel(QStringLiteral("温度与真空变化趋势"), "PanelTitle", trend);
     trendLayout->addWidget(m_detailTrendTitle);
+    // 同一张图按步骤切换模式；它读取 m_store，而不是直接订阅控制器。
     m_detailChart = new TrendChartWidget(TrendChartWidget::Mode::Combined, trend);
     m_detailChart->setStore(m_store);
     trendLayout->addWidget(m_detailChart, 1);
@@ -395,6 +413,7 @@ QWidget *OperatorWidget::buildDetailPage()
 
 void OperatorWidget::onProcessSnapshot(const ProcessSnapshot &snapshot)
 {
+    // 流程状态变化时同时更新左侧流程、摘要、详情和按钮权限。
     m_snapshot = snapshot;
     m_processFlow->setSnapshot(snapshot);
     refreshSummary();
@@ -404,6 +423,7 @@ void OperatorWidget::onProcessSnapshot(const ProcessSnapshot &snapshot)
 
 void OperatorWidget::onTelemetryReady(const TelemetryPoint &point)
 {
+    // 这是温度与压强的界面数据入口：缓存给详情图，同时更新总览摘要。
     m_temperatureK = point.temperatureK;
     m_pressurePa = point.vacuumPa;
     m_store->appendPoint(point);
@@ -413,6 +433,7 @@ void OperatorWidget::onTelemetryReady(const TelemetryPoint &point)
 
 void OperatorWidget::onDeviceStatus(const DeviceStatus &device)
 {
+    // 七设备状态带只做显示；真空计 keyValue 的生成位置在 MockSystem::publishDevices()。
     m_deviceHealth->setDeviceStatus(device);
 }
 
@@ -424,12 +445,11 @@ void OperatorWidget::onHighLimitChanged(double pa)
 
 void OperatorWidget::onLogMessage(const QString &message)
 {
+    // 总览记录保留本次界面生命周期内的全部消息，新增后自动滚到最新一条。
     if (m_overviewEvents->count() == 1
         && m_overviewEvents->item(0)->text() == QStringLiteral("等待自动流程启动"))
         delete m_overviewEvents->takeItem(0);
     m_overviewEvents->addItem(message);
-    while (m_overviewEvents->count() > 5)
-        delete m_overviewEvents->takeItem(0);
     m_overviewEvents->scrollToBottom();
     if (m_eventList->count() == 1
         && m_eventList->item(0)->text() == QStringLiteral("等待设备动作记录"))
@@ -442,20 +462,22 @@ void OperatorWidget::onLogMessage(const QString &message)
 
 void OperatorWidget::refreshSummary()
 {
+    // 真空摘要与真空计、趋势图共用 formatPressure()，修改压强显示格式只需改公共函数。
     m_stateValue->setText(m_snapshot.stateText);
     m_stateDetail->setText(m_snapshot.detailText);
     m_temperatureValue->setText(QStringLiteral("%1 K").arg(m_temperatureK, 0, 'f', 1));
     m_temperatureTarget->setText(QStringLiteral("目标温度：2.8 K"));
     m_temperatureRate->setText(QStringLiteral("设定速率：%1 K/min").arg(
         m_coolingRate ? m_coolingRate->value() : 1.0, 0, 'f', 1));
-    m_pressureValue->setText(TrendChartWidget::formatPressureTick(m_pressurePa)
+    m_pressureValue->setText(formatPressure(m_pressurePa)
                              + QStringLiteral(" Pa"));
-    m_pressureLimit->setText(TrendChartWidget::formatPressureTick(m_highLimitPa)
+    m_pressureLimit->setText(formatPressure(m_highLimitPa)
                              + QStringLiteral(" Pa 高真空门限"));
 }
 
 void OperatorWidget::refreshCommands()
 {
+    // CommandAvailability 由状态机计算；此处只把结果翻译为可用状态、提示和只读属性。
     const CommandAvailability &commands = m_snapshot.commands;
     m_startButton->setEnabled(commands.canStart);
     m_stopButton->setEnabled(commands.canStop);
@@ -472,6 +494,7 @@ void OperatorWidget::refreshCommands()
 
 void OperatorWidget::refreshDetail()
 {
+    // 选中的详情步骤可能不同于正在执行步骤，所以标题用 m_detailStep，状态用快照中的对应项。
     const int index = static_cast<int>(m_detailStep);
     const bool hasTrend = m_detailStep != ProcessStep::Preparation;
     m_detailTitle->setText(QStringLiteral("流程详情：%1").arg(stepName(m_detailStep)));
@@ -488,6 +511,7 @@ void OperatorWidget::refreshDetail()
 
 void OperatorWidget::showProcessDetail(ProcessStep step)
 {
+    // 左侧流程点击后的唯一页面切换入口，并把焦点交给详情中的主要内容以方便键盘操作。
     m_detailStep = step;
     m_pages->setCurrentIndex(1);
     refreshDetail();
@@ -505,6 +529,7 @@ void OperatorWidget::showOverview()
 
 void OperatorWidget::showExportDialog()
 {
+    // 系统准备阶段没有过程曲线，因此仅允许导出文本数据。
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("导出运行数据"));
     dialog.setMinimumWidth(430);
@@ -545,6 +570,7 @@ void OperatorWidget::showExportDialog()
 
 void OperatorWidget::exportTrendImage()
 {
+    // 通过 render() 将当前详情图控件直接绘制为 PNG，不重新计算趋势数据。
     if (m_detailStep == ProcessStep::Preparation) {
         QMessageBox::information(this, QStringLiteral("导出趋势图片"),
                                  QStringLiteral("系统准备阶段没有温度或真空变化曲线，请选择导出文本数据。"));
@@ -564,6 +590,7 @@ void OperatorWidget::exportTrendImage()
 
 void OperatorWidget::confirmVent()
 {
+    // 这是界面二次确认；真正是否允许放空仍由状态机的 canVent 判断。
     QMessageBox box(QMessageBox::Warning, QStringLiteral("确认室温放空"),
                     QStringLiteral("放空将使腔体恢复到大气压力。请确认样品已回到室温、泵组已停止且高真空主阀已关闭。"),
                     QMessageBox::NoButton, this);

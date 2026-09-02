@@ -49,6 +49,7 @@ QWidget *makeRow(QWidget *parent, QLabel *led, QPushButton *b1, QPushButton *b2)
 
 QDoubleSpinBox *makeDoubleSpin(QWidget *parent, double lo, double hi, int dec, double val)
 {
+    // 工程师参数输入框的公共初始化，避免每个参数重复设置范围和小数位。
     auto *s = new QDoubleSpinBox(parent);
     s->setRange(lo, hi);
     s->setDecimals(dec);
@@ -61,6 +62,7 @@ QDoubleSpinBox *makeDoubleSpin(QWidget *parent, double lo, double hi, int dec, d
 EngineerWidget::EngineerWidget(QWidget *parent)
     : QWidget(parent)
 {
+    // 三个页签一次性创建，切换页签时只改变可见内容，不丢失当前输入值。
     auto *v = new QVBoxLayout(this);
     v->setContentsMargins(0, 0, 0, 0);
 
@@ -73,6 +75,7 @@ EngineerWidget::EngineerWidget(QWidget *parent)
 
 EngineerWidget::ValveRow EngineerWidget::makeValveRow(const QString &name, QFormLayout *form)
 {
+    // 每个阀门统一为“状态灯 + 开启 + 关闭”，返回指针以便槽函数回显。
     ValveRow r;
     QWidget *parent = form->parentWidget();
     auto *nameLbl = new QLabel(name, parent);
@@ -104,6 +107,7 @@ QWidget *EngineerWidget::buildManualTab()
     m_gateRow = makeValveRow(QStringLiteral("高真空气动主阀"), vf);
     m_foreRow = makeValveRow(QStringLiteral("前级电磁阀"), vf);
     m_ventRow = makeValveRow(QStringLiteral("放空阀"), vf);
+    // 工程师手动点击仍只发请求，实际阀门状态以后由控制器回传。
     connect(m_gateRow.onBtn, &QPushButton::clicked, this, [this] { emit gateValveSet(true); });
     connect(m_gateRow.offBtn, &QPushButton::clicked, this, [this] { emit gateValveSet(false); });
     connect(m_foreRow.onBtn, &QPushButton::clicked, this, [this] { emit foreValveSet(true); });
@@ -178,6 +182,7 @@ QWidget *EngineerWidget::buildManualTab()
     hf->addRow(QStringLiteral("目标温度"), m_pidTarget);
     hf->addRow(m_pidApply);
 
+    // 勾选框由控制器状态回显时也可能改变，因此控制器实现需避免无效重复切换。
     connect(m_heaterChk, &QCheckBox::toggled, this, &EngineerWidget::heaterSet);
     connect(m_pidApply, &QPushButton::clicked, this, [this] {
         emit pidParamsSet(m_pidP->value(), m_pidI->value(), m_pidD->value(), m_pidTarget->value());
@@ -223,6 +228,7 @@ QWidget *EngineerWidget::buildDiagnosticsTab()
     diGrid->setHorizontalSpacing(24);
     diGrid->setVerticalSpacing(8);
 
+    // 名称数组和 MockSystem::DiIndex 的顺序必须完全一致。
     static const char *kDiNames[kDiCount] = {
         "水冷流量开关", "急停按钮", "看门狗心跳",
         "前级门联锁", "加热超温保护", "制冷机高压保护"
@@ -247,6 +253,7 @@ QWidget *EngineerWidget::buildDiagnosticsTab()
     snsGrid->setHorizontalSpacing(24);
     snsGrid->setVerticalSpacing(8);
 
+    // 原始读数名称和 MockSystem::SensorIndex 的顺序必须完全一致。
     static const char *kSnsNames[kSnsCount] = {
         "真空规 1（冷阴极）", "真空规 2（皮拉尼）",
         "温度传感器 A（DT-670）", "温度传感器 B（Cernox）",
@@ -319,6 +326,7 @@ QWidget *EngineerWidget::buildConfigTab()
     btnRow->addStretch(1);
     f->addRow(btnRow);
 
+    // 明确告知此页参数只作用于 Mock 控制器，不能视为真实硬件标定结果。
     auto *note = new QLabel(
         QStringLiteral("说明：门限与速率参数由工程师模式修改并立即生效（Mock 控制器）。\n"
                        "升降温度速率在演示中按 K/tick 加速执行，真实 FSM 接入后按 K/min 生效。"),
@@ -358,6 +366,7 @@ void EngineerWidget::onHeaterChanged(bool on) { m_heaterChk->setChecked(on); }
 
 void EngineerWidget::onDiChanged(int index, bool on)
 {
+    // 索引来自控制器；越界时忽略，避免数组访问越界。
     if (index < 0 || index >= kDiCount)
         return;
     setLedState(m_diLed[index], on);
@@ -368,6 +377,7 @@ void EngineerWidget::onDiChanged(int index, bool on)
 
 void EngineerWidget::onSensorRawChanged(int index, const QString &text)
 {
+    // 这里只显示控制器给出的原始字符串，不再解释或转换其物理含义。
     if (index < 0 || index >= kSnsCount)
         return;
     m_snsValue[index]->setText(text);
@@ -375,6 +385,7 @@ void EngineerWidget::onSensorRawChanged(int index, const QString &text)
 
 void EngineerWidget::onLogMessage(const QString &msg)
 {
+    // QPlainTextEdit 已设定最大行数，长期运行不会无限占用内存。
     if (m_log)
         m_log->appendPlainText(msg);
 }

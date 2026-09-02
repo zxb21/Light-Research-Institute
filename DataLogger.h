@@ -20,12 +20,14 @@ class DataLogger : public QObject
 public:
     explicit DataLogger(QObject *parent = nullptr);
 
+    // 自动保存配置；会话目录在收到第一条遥测或日志时延迟创建。
     void setAutoSaveEnabled(bool enabled);
     void setAutoSaveDirectory(const QString &directory);
     QString autoSaveDirectory() const;
     QString currentRunDirectory() const;
 
 public slots:
+    // 接收控制器样本和日志；导出会复制当前运行目录中的全部相关文件。
     void onSampleReady(double epochSec, double vacuumPa, double tempK,
                        const QString &phase);
     void appendLog(const QString &message);
@@ -33,6 +35,7 @@ public slots:
     void flush();
 
 private:
+    // 创建一次运行的文件集合并安全写入；失败时保留空目录状态，不影响控制流程。
     bool ensureAutoSession();
     void appendEvent(const QString &severity, const QString &message);
     static bool copyFile(const QString &sourcePath, const QString &targetPath);

@@ -10,11 +10,14 @@
 
 class QTimer;
 
+// 当前演示版控制器：以定时器生成模拟温度、压强和设备状态。
+// 它不是实际硬件策略；接入硬件时应以新的 SystemController 实现替换它。
 class MockSystem : public SystemController
 {
     Q_OBJECT
 
 public:
+    // 工程师页使用的数组下标，顺序必须与对应标签数组保持一致。
     enum DiIndex {
         DiWaterFlow, DiEStop, DiWatchdog, DiDoorInterlock,
         DiHeaterOvertemp, DiCompressorHp, DiCount
@@ -31,6 +34,7 @@ public:
     explicit MockSystem(QObject *parent = nullptr);
 
 public slots:
+    // SystemController 的具体实现：处理界面请求并发布模拟结果。
     void requestStart(double coolingRateKPerMin) override;
     void requestStop() override;
     void requestSafetyStop() override;
@@ -51,6 +55,7 @@ public slots:
     void setDeviceHealth(int index, bool healthy, const QString &message);
 
 private:
+    // 一个定时周期内的模拟推进、数据发布和安全条件同步。
     void tick();
     void enterState(SystemState state);
     void publishSnapshot();
@@ -64,6 +69,7 @@ private:
     double sensorVoltage(double pa) const;
     QString phaseText() const;
 
+    // 模拟运行时状态；物理单位仍保留 K、Pa、K/min，时间被特意压缩用于演示。
     QTimer *m_timer = nullptr;
     ProcessStateMachine m_process;
     int m_ticks = 0;

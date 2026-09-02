@@ -11,6 +11,7 @@
 namespace {
 
 const QStringList kStepNames = {
+    // 左侧流程图的七步名称；顺序必须与 ProcessStep 枚举值一致。
     QStringLiteral("系统准备"),
     QStringLiteral("粗抽真空（干泵）"),
     QStringLiteral("高真空建立（分子泵）"),
@@ -21,6 +22,7 @@ const QStringList kStepNames = {
 };
 
 const QStringList kDeviceNames = {
+    // 七设备状态带的固定顺序；必须与 MockSystem::DeviceIndex 一致。
     QStringLiteral("干泵"), QStringLiteral("分子泵"), QStringLiteral("冷水机"),
     QStringLiteral("真空计"), QStringLiteral("温控仪"), QStringLiteral("压缩机"),
     QStringLiteral("真空电磁阀")
@@ -38,6 +40,7 @@ const QStringList kDeviceIcons = {
 
 QColor stepColor(StepState state)
 {
+    // 流程节点颜色只反映步骤状态，不承担任何安全判断。
     switch (state) {
     case StepState::Completed: return QColor(QStringLiteral("#16A36A"));
     case StepState::Active: return QColor(QStringLiteral("#1F6FD1"));
@@ -64,6 +67,7 @@ QString stepStateText(StepState state)
 
 QColor healthColor(DeviceHealth health)
 {
+    // 设备状态灯与文字共用此颜色，修改健康状态配色可从这里开始。
     switch (health) {
     case DeviceHealth::Normal:
     case DeviceHealth::Running: return QColor(QStringLiteral("#16A36A"));
@@ -93,6 +97,7 @@ QString healthText(DeviceHealth health)
 ProcessFlowWidget::ProcessFlowWidget(QWidget *parent)
     : QWidget(parent)
 {
+    // 固定宽度、鼠标手型和强焦点共同保证流程图可读且可用键盘操作。
     setMinimumWidth(360);
     setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
     setAccessibleName(QStringLiteral("七步自动运行流程"));
@@ -103,12 +108,14 @@ ProcessFlowWidget::ProcessFlowWidget(QWidget *parent)
 
 void ProcessFlowWidget::setSnapshot(const ProcessSnapshot &snapshot)
 {
+    // 仅缓存快照并请求重绘；实际绘制发生在下一次 paintEvent()。
     m_snapshot = snapshot;
     update();
 }
 
 void ProcessFlowWidget::paintEvent(QPaintEvent *)
 {
+    // 自绘顺序：外框 → 当前运行摘要 → 进度条 → 七个步骤节点。
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
@@ -158,6 +165,7 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
     painter.drawText(QRectF(18, 164, width() - 36, 20), QStringLiteral("流程步骤（共 7 步）"));
 
     const double firstY = 205.0;
+    // 窗口变矮时同步压缩七行，点击命中计算也必须复用同一公式。
     const double rowHeight = std::min(68.0, (height() - firstY - 22.0) / 7.0);
     const double nodeX = 35.0;
     for (int i = 0; i < 7; ++i) {
@@ -165,6 +173,7 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
         const StepState state = m_snapshot.steps[static_cast<size_t>(i)];
         const QColor color = stepColor(state);
 
+        // 已完成且下一步不再等待时连接线实线绿色，否则使用虚线。
         if (i < 6) {
             const StepState next = m_snapshot.steps[static_cast<size_t>(i + 1)];
             const bool solid = state == StepState::Completed
@@ -176,6 +185,7 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
                              QPointF(nodeX, centerY + rowHeight - 11));
         }
 
+        // “进行中”与“用户选中查看详情”是不同概念，二者都需要背景提示。
         if (state == StepState::Active || i == m_selectedStep) {
             painter.setPen(Qt::NoPen);
             painter.setBrush(state == StepState::Active
@@ -192,6 +202,7 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
 
         painter.setPen(QPen(color, 2.0));
         painter.setBrush(state == StepState::Pending ? Qt::white : color);
+        // 中止画方形、故障画菱形，其余状态画圆形，便于不只依赖颜色区分。
         if (state == StepState::Interrupted)
             painter.drawRect(QRectF(nodeX - 9, centerY - 9, 18, 18));
         else if (state == StepState::Faulted) {
@@ -244,6 +255,7 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
 
 void ProcessFlowWidget::mouseReleaseEvent(QMouseEvent *event)
 {
+    // 松开左键才激活，避免鼠标按下并拖出控件时误切换详情页。
     if (event->button() == Qt::LeftButton) {
         const int index = stepIndexAt(event->position().y());
         if (index >= 0) {
@@ -258,6 +270,7 @@ void ProcessFlowWidget::mouseReleaseEvent(QMouseEvent *event)
 
 void ProcessFlowWidget::keyPressEvent(QKeyEvent *event)
 {
+    // 上下键只移动选择，不改变流程；回车、空格才发出查看详情请求。
     if (event->key() == Qt::Key_Up) {
         m_selectedStep = std::max(0, m_selectedStep - 1);
         update();
@@ -281,6 +294,7 @@ void ProcessFlowWidget::keyPressEvent(QKeyEvent *event)
 
 int ProcessFlowWidget::stepIndexAt(int y) const
 {
+    // 该命中区域必须与 paintEvent() 的节点行位置保持一致。
     const double firstY = 205.0;
     const double rowHeight = std::min(68.0, (height() - firstY - 22.0) / 7.0);
     const double top = firstY - rowHeight / 2.0;
@@ -292,6 +306,7 @@ int ProcessFlowWidget::stepIndexAt(int y) const
 DeviceHealthWidget::DeviceHealthWidget(QWidget *parent)
     : QWidget(parent)
 {
+    // 初始值全部设为离线，直到控制器逐个发布七设备状态。
     setMinimumHeight(88);
     setMaximumHeight(96);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -305,6 +320,7 @@ DeviceHealthWidget::DeviceHealthWidget(QWidget *parent)
 
 void DeviceHealthWidget::setDeviceStatus(const DeviceStatus &status)
 {
+    // index 是设备的稳定位置；越界数据直接忽略，防止破坏固定七格布局。
     if (status.index < 0 || status.index >= 7)
         return;
     m_devices[static_cast<size_t>(status.index)] = status;
@@ -313,6 +329,7 @@ void DeviceHealthWidget::setDeviceStatus(const DeviceStatus &status)
 
 void DeviceHealthWidget::paintEvent(QPaintEvent *)
 {
+    // 每格依次画图标、状态点、设备名称、健康文字和 keyValue。
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     painter.setRenderHint(QPainter::TextAntialiasing);
@@ -352,6 +369,7 @@ void DeviceHealthWidget::paintEvent(QPaintEvent *)
         painter.drawText(QRectF(item.left() + 46, 29, item.width() - 52, 18),
                          Qt::AlignLeft | Qt::AlignVCenter, healthText(device.health));
         painter.setPen(QColor(QStringLiteral("#66758A")));
+        // 有关键读数时优先显示 keyValue；没有时退回显示最后更新时间。
         const QString auxiliary = device.keyValue.isEmpty()
             ? (device.updatedAt.isValid()
                    ? device.updatedAt.toString(QStringLiteral("HH:mm"))

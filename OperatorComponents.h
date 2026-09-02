@@ -10,6 +10,8 @@
 class QKeyEvent;
 class QMouseEvent;
 
+// 左侧七步流程的自绘控件：负责画图和把鼠标/键盘操作转换为步骤信号。
+// 它不切换页面；OperatorWidget 收到 stepActivated 后负责显示详情。
 class ProcessFlowWidget : public QWidget
 {
     Q_OBJECT
@@ -33,6 +35,8 @@ private:
     int m_selectedStep = 0;
 };
 
+// 七设备状态带的自绘控件：显示控制器传入的名称、健康状态和关键读数。
+// 真空计的压强文字已经在 MockSystem::publishDevices() 中格式化后传入。
 class DeviceHealthWidget : public QWidget
 {
     Q_OBJECT
