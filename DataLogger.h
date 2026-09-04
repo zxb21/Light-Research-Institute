@@ -1,9 +1,12 @@
 #ifndef DATALOGGER_H
 #define DATALOGGER_H
 
+#include "SystemTypes.h"
+
 #include <QObject>
 #include <QFile>
 #include <QString>
+#include <QVector>
 
 class QTimer;
 
@@ -25,18 +28,32 @@ public:
     void setAutoSaveDirectory(const QString &directory);
     QString autoSaveDirectory() const;
     QString currentRunDirectory() const;
+    bool hasExportableRun() const;
+    QVector<RunSummary> runSummaries() const;
+    void selectRunDirectory(const QString &directory);
+
+signals:
+    void exportAvailabilityChanged(bool available);
+    void runFinished(const RunSummary &summary);
 
 public slots:
     // 接收控制器样本和日志；导出会复制当前运行目录中的全部相关文件。
     void onSampleReady(double epochSec, double vacuumPa, double tempK,
                        const QString &phase);
     void appendLog(const QString &message);
+    void onProcessSnapshot(const ProcessSnapshot &snapshot);
+    void onAlarmChanged(const AlarmStatus &alarm);
     void exportInteractive();
     void flush();
 
 private:
     // 创建一次运行的文件集合并安全写入；失败时保留空目录状态，不影响控制流程。
     bool ensureAutoSession();
+    void startRun();
+    void finishRun(const QString &result, const ProcessSnapshot &snapshot);
+    void writeMetadata() const;
+    RunSummary readSummary(const QString &directory) const;
+    bool directoryHasTelemetry(const QString &directory) const;
     void appendEvent(const QString &severity, const QString &message);
     static bool copyFile(const QString &sourcePath, const QString &targetPath);
     static QString makeTimestamp();
@@ -48,6 +65,12 @@ private:
     QFile m_eventsFile;
     QFile m_diagnosticsFile;
     bool m_autoSaveEnabled = true;
+    bool m_lifecycleSeen = false;
+    bool m_runActive = false;
+    bool m_hasSample = false;
+    ProcessSnapshot m_lastSnapshot;
+    RunSummary m_activeSummary;
+    QString m_selectedRunDirectory;
 };
 
 #endif // DATALOGGER_H

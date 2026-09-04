@@ -19,6 +19,8 @@
 #include <QStackedWidget>
 #include <QVBoxLayout>
 
+#include <cmath>
+
 namespace {
 
 QLabel *makeLabel(const QString &text, const char *objectName, QWidget *parent = nullptr)
@@ -202,10 +204,11 @@ QWidget *OperatorWidget::buildOverviewPage()
     auto *activityLayout = new QVBoxLayout(activityPanel);
     activityLayout->setContentsMargins(16, 12, 16, 12);
     activityLayout->setSpacing(6);
-    activityLayout->addWidget(makeLabel(QStringLiteral("最近运行记录"), "PanelTitle", activityPanel));
+    m_overviewEventsTitle = makeLabel(QStringLiteral("最近一次运行"), "PanelTitle", activityPanel);
+    activityLayout->addWidget(m_overviewEventsTitle);
     m_overviewEvents = new QListWidget(activityPanel);
     m_overviewEvents->setObjectName(QStringLiteral("EventList"));
-    m_overviewEvents->addItem(QStringLiteral("等待自动流程启动"));
+    m_overviewEvents->addItem(QStringLiteral("暂无运行记录"));
     activityLayout->addWidget(m_overviewEvents);
     right->addWidget(activityPanel, 1);
     right->addWidget(buildControlPanel());
@@ -310,22 +313,41 @@ QWidget *OperatorWidget::buildControlPanel()
     m_commandReason->setWordWrap(true);
     m_commandReason->setMinimumHeight(42);
     footerRow->addWidget(m_commandReason, 1);
-    auto *exportButton = new QPushButton(QStringLiteral("导出运行数据"), panel);
-    exportButton->setObjectName(QStringLiteral("ExportButton"));
-    exportButton->setMinimumSize(220, 46);
-    footerRow->addWidget(exportButton);
+    m_safetyStopButton = new QPushButton(QStringLiteral("安全停止"), panel);
+    m_safetyStopButton->setObjectName(QStringLiteral("WarningButton"));
+    m_safetyStopButton->setMinimumSize(104, 46);
+    footerRow->addWidget(m_safetyStopButton);
+    m_resetButton = new QPushButton(QStringLiteral("复位"), panel);
+    m_resetButton->setObjectName(QStringLiteral("NeutralButton"));
+    m_resetButton->setMinimumSize(76, 46);
+    footerRow->addWidget(m_resetButton);
+    m_runHistoryButton = new QPushButton(QStringLiteral("查看运行记录"), panel);
+    m_runHistoryButton->setObjectName(QStringLiteral("NeutralButton"));
+    m_runHistoryButton->setMinimumSize(132, 46);
+    footerRow->addWidget(m_runHistoryButton);
+    m_exportButton = new QPushButton(QStringLiteral("导出运行数据"), panel);
+    m_exportButton->setObjectName(QStringLiteral("ExportButton"));
+    m_exportButton->setMinimumSize(180, 46);
+    footerRow->addWidget(m_exportButton);
     layout->addLayout(footerRow);
     // 点击后只发请求；控制器检查安全条件后才会真正推进流程。
     connect(m_startButton, &QPushButton::clicked, this, [this] {
+        onLogMessage(QStringLiteral("已接受启动请求，正在进入自动流程"));
         emit startRequested(m_coolingRate->value());
     });
     connect(m_stopButton, &QPushButton::clicked, this, &OperatorWidget::stopRequested);
+    connect(m_safetyStopButton, &QPushButton::clicked, this, &OperatorWidget::safetyStopRequested);
+    connect(m_resetButton, &QPushButton::clicked, this, &OperatorWidget::resetRequested);
     connect(m_ventButton, &QPushButton::clicked, this, &OperatorWidget::confirmVent);
-    connect(exportButton, &QPushButton::clicked, this, &OperatorWidget::showExportDialog);
+    connect(m_exportButton, &QPushButton::clicked, this, &OperatorWidget::showExportDialog);
+    connect(m_runHistoryButton, &QPushButton::clicked, this, &OperatorWidget::runHistoryRequested);
     QWidget::setTabOrder(m_coolingRate, m_startButton);
     QWidget::setTabOrder(m_startButton, m_stopButton);
     QWidget::setTabOrder(m_stopButton, m_ventButton);
-    QWidget::setTabOrder(m_ventButton, exportButton);
+    QWidget::setTabOrder(m_ventButton, m_safetyStopButton);
+    QWidget::setTabOrder(m_safetyStopButton, m_resetButton);
+    QWidget::setTabOrder(m_resetButton, m_runHistoryButton);
+    QWidget::setTabOrder(m_runHistoryButton, m_exportButton);
     return panel;
 }
 
@@ -443,11 +465,18 @@ void OperatorWidget::onHighLimitChanged(double pa)
     refreshSummary();
 }
 
+void OperatorWidget::onCommunicationChanged(bool connected)
+{
+    // 通信状态来自控制器，首页只显示它，不自行推测设备通信是否恢复。
+    m_communicationConnected = connected;
+    refreshSummary();
+}
+
 void OperatorWidget::onLogMessage(const QString &message)
 {
     // 总览记录保留本次界面生命周期内的全部消息，新增后自动滚到最新一条。
     if (m_overviewEvents->count() == 1
-        && m_overviewEvents->item(0)->text() == QStringLiteral("等待自动流程启动"))
+        && m_overviewEvents->item(0)->text() == QStringLiteral("暂无运行记录"))
         delete m_overviewEvents->takeItem(0);
     m_overviewEvents->addItem(message);
     m_overviewEvents->scrollToBottom();
@@ -460,10 +489,56 @@ void OperatorWidget::onLogMessage(const QString &message)
     m_eventList->scrollToBottom();
 }
 
+void OperatorWidget::onExportAvailabilityChanged(bool available)
+{
+    m_hasExportableRun = available;
+    m_exportButton->setEnabled(available);
+    m_exportButton->setToolTip(available ? QString() : QStringLiteral("暂无有效运行数据，不能导出空文件"));
+}
+
+void OperatorWidget::onRunFinished(const RunSummary &summary)
+{
+    m_runFinished = true;
+    m_overviewEventsTitle->setText(QStringLiteral("本次运行结果"));
+    m_overviewEvents->clear();
+    const auto valueOrNone = [](double value, int decimals, const QString &unit) {
+        return std::isfinite(value) ? QString::number(value, 'f', decimals) + unit
+                                    : QStringLiteral("暂无数据");
+    };
+    m_overviewEvents->addItems({
+        QStringLiteral("开始时间：%1").arg(summary.startedAt.isValid()
+            ? summary.startedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")) : QStringLiteral("暂无数据")),
+        QStringLiteral("结束时间：%1").arg(summary.endedAt.isValid()
+            ? summary.endedAt.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")) : QStringLiteral("暂无数据")),
+        QStringLiteral("运行结果：%1").arg(summary.result.isEmpty() ? QStringLiteral("暂无数据") : summary.result),
+        QStringLiteral("最后阶段：%1").arg(summary.lastPhase.isEmpty() ? QStringLiteral("暂无数据") : summary.lastPhase),
+        QStringLiteral("最低样品温度：%1").arg(valueOrNone(summary.lowestTemperatureK, 1, QStringLiteral(" K"))),
+        QStringLiteral("结束时真空度：%1").arg(std::isfinite(summary.finalVacuumPa)
+            ? formatPressure(summary.finalVacuumPa) + QStringLiteral(" Pa") : QStringLiteral("暂无数据")),
+        QStringLiteral("报警数量：%1").arg(summary.alarmCount),
+        QStringLiteral("数据目录：%1").arg(summary.directory.isEmpty() ? QStringLiteral("暂无数据") : summary.directory)
+    });
+}
+
 void OperatorWidget::refreshSummary()
 {
     // 真空摘要与真空计、趋势图共用 formatPressure()，修改压强显示格式只需改公共函数。
-    m_stateValue->setText(m_snapshot.stateText);
+    const bool active = m_snapshot.state >= SystemState::Preparing
+        && m_snapshot.state <= SystemState::Running;
+    if (m_snapshot.state == SystemState::Fault || m_snapshot.state == SystemState::ResetRequired) {
+        m_stateValue->setText(m_snapshot.state == SystemState::Fault
+            ? QStringLiteral("故障待处理") : QStringLiteral("等待复位"));
+    } else if (m_snapshot.state == SystemState::SafetyStopping) {
+        m_stateValue->setText(QStringLiteral("安全停止中"));
+    } else if (!m_communicationConnected) {
+        m_stateValue->setText(QStringLiteral("通信异常"));
+    } else if (m_snapshot.commands.canStart) {
+        m_stateValue->setText(QStringLiteral("可启动"));
+    } else if (active) {
+        m_stateValue->setText(QStringLiteral("运行正常"));
+    } else {
+        m_stateValue->setText(QStringLiteral("未就绪"));
+    }
     m_stateDetail->setText(m_snapshot.detailText);
     m_temperatureValue->setText(QStringLiteral("%1 K").arg(m_temperatureK, 0, 'f', 1));
     m_temperatureTarget->setText(QStringLiteral("目标温度：2.8 K"));
@@ -473,6 +548,14 @@ void OperatorWidget::refreshSummary()
                              + QStringLiteral(" Pa"));
     m_pressureLimit->setText(formatPressure(m_highLimitPa)
                              + QStringLiteral(" Pa 高真空门限"));
+    if (m_snapshot.state == SystemState::Fault || m_snapshot.state == SystemState::ResetRequired) {
+        m_overviewEventsTitle->setText(QStringLiteral("故障处理记录"));
+    } else if (active) {
+        m_runFinished = false;
+        m_overviewEventsTitle->setText(QStringLiteral("本次运行记录"));
+    } else if (!m_runFinished) {
+        m_overviewEventsTitle->setText(QStringLiteral("最近一次运行"));
+    }
 }
 
 void OperatorWidget::refreshCommands()
@@ -482,14 +565,19 @@ void OperatorWidget::refreshCommands()
     m_startButton->setEnabled(commands.canStart);
     m_stopButton->setEnabled(commands.canStop);
     m_ventButton->setEnabled(commands.canVent);
+    m_safetyStopButton->setEnabled(commands.canSafetyStop);
+    m_safetyStopButton->setVisible(commands.canSafetyStop);
+    m_resetButton->setEnabled(commands.canReset);
+    m_resetButton->setVisible(commands.canReset || m_snapshot.state == SystemState::ResetRequired);
     m_coolingRate->setReadOnly(m_snapshot.state != SystemState::Idle);
     m_startButton->setToolTip(commands.canStart ? QString() : commands.startReason);
     m_stopButton->setToolTip(commands.canStop ? QString() : commands.stopReason);
     m_ventButton->setToolTip(commands.canVent ? QString() : commands.ventReason);
     const bool waitingVent = m_snapshot.state == SystemState::Warming
         || m_snapshot.state == SystemState::ReadyToVent;
-    m_commandReason->setText(waitingVent && !commands.canVent ? commands.ventReason
-                                                               : m_snapshot.detailText);
+    m_commandReason->setText(!commands.canStart ? commands.startReason
+                             : waitingVent && !commands.canVent ? commands.ventReason
+                                                                 : m_snapshot.detailText);
 }
 
 void OperatorWidget::refreshDetail()
@@ -529,6 +617,8 @@ void OperatorWidget::showOverview()
 
 void OperatorWidget::showExportDialog()
 {
+    if (!m_hasExportableRun)
+        return;
     // 系统准备阶段没有过程曲线，因此仅允许导出文本数据。
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("导出运行数据"));

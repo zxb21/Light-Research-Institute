@@ -10,6 +10,10 @@
 #include <QSaveFile>
 #include <QTimer>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 namespace {
 
 QString csvEscape(const QString &value)
@@ -68,6 +72,39 @@ QString DataLogger::currentRunDirectory() const
     return m_runDirectory;
 }
 
+bool DataLogger::directoryHasTelemetry(const QString &directory) const
+{
+    const QFileInfo telemetry(QDir(directory).filePath(QStringLiteral("telemetry.csv")));
+    return telemetry.isFile() && telemetry.size() > 3;
+}
+
+bool DataLogger::hasExportableRun() const
+{
+    const QString directory = m_selectedRunDirectory.isEmpty()
+        ? m_runDirectory : m_selectedRunDirectory;
+    return directoryHasTelemetry(directory);
+}
+
+QVector<RunSummary> DataLogger::runSummaries() const
+{
+    QVector<RunSummary> summaries;
+    const QDir directory(m_autoDirectory);
+    const QFileInfoList entries = directory.entryInfoList({ QStringLiteral("run_*") },
+                                                          QDir::Dirs | QDir::NoDotAndDotDot,
+                                                          QDir::Time);
+    for (const QFileInfo &entry : entries)
+        summaries.append(readSummary(entry.absoluteFilePath()));
+    return summaries;
+}
+
+void DataLogger::selectRunDirectory(const QString &directory)
+{
+    if (directoryHasTelemetry(directory)) {
+        m_selectedRunDirectory = directory;
+        emit exportAvailabilityChanged(true);
+    }
+}
+
 bool DataLogger::ensureAutoSession()
 {
     // 只有真正出现数据或事件时才建目录，空启动不会产生无意义运行记录。
@@ -121,15 +158,88 @@ bool DataLogger::ensureAutoSession()
         metadata.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
         metadata.commit();
     }
+    m_activeSummary.directory = m_runDirectory;
     return true;
+}
+
+void DataLogger::startRun()
+{
+    // 上一轮结束后关闭旧文件并清空目录，下一轮绝不追加到旧记录。
+    m_telemetryFile.close();
+    m_eventsFile.close();
+    m_diagnosticsFile.close();
+    m_runDirectory.clear();
+    m_runActive = true;
+    m_hasSample = false;
+    m_selectedRunDirectory.clear();
+    m_activeSummary = RunSummary();
+    m_activeSummary.startedAt = QDateTime::currentDateTime();
+}
+
+void DataLogger::writeMetadata() const
+{
+    if (m_runDirectory.isEmpty())
+        return;
+    QSaveFile metadata(QDir(m_runDirectory).filePath(QStringLiteral("metadata.json")));
+    if (!metadata.open(QIODevice::WriteOnly))
+        return;
+    QJsonObject object {
+        { QStringLiteral("system"), QStringLiteral("超低振动深低温恒温器") },
+        { QStringLiteral("startedAt"), m_activeSummary.startedAt.toString(Qt::ISODateWithMs) },
+        { QStringLiteral("endedAt"), m_activeSummary.endedAt.toString(Qt::ISODateWithMs) },
+        { QStringLiteral("result"), m_activeSummary.result },
+        { QStringLiteral("lastPhase"), m_activeSummary.lastPhase },
+        { QStringLiteral("alarmCount"), m_activeSummary.alarmCount },
+        { QStringLiteral("temperatureUnit"), QStringLiteral("K") },
+        { QStringLiteral("vacuumUnit"), QStringLiteral("Pa") }
+    };
+    if (std::isfinite(m_activeSummary.lowestTemperatureK))
+        object.insert(QStringLiteral("lowestTemperatureK"), m_activeSummary.lowestTemperatureK);
+    if (std::isfinite(m_activeSummary.finalVacuumPa))
+        object.insert(QStringLiteral("finalVacuumPa"), m_activeSummary.finalVacuumPa);
+    metadata.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
+    metadata.commit();
+}
+
+RunSummary DataLogger::readSummary(const QString &directory) const
+{
+    RunSummary summary;
+    summary.directory = directory;
+    QFile metadata(QDir(directory).filePath(QStringLiteral("metadata.json")));
+    if (!metadata.open(QIODevice::ReadOnly))
+        return summary;
+    const QJsonObject object = QJsonDocument::fromJson(metadata.readAll()).object();
+    summary.startedAt = QDateTime::fromString(object.value(QStringLiteral("startedAt")).toString(), Qt::ISODateWithMs);
+    summary.endedAt = QDateTime::fromString(object.value(QStringLiteral("endedAt")).toString(), Qt::ISODateWithMs);
+    summary.result = object.value(QStringLiteral("result")).toString();
+    summary.lastPhase = object.value(QStringLiteral("lastPhase")).toString();
+    summary.lowestTemperatureK = object.value(QStringLiteral("lowestTemperatureK")).toDouble(
+        std::numeric_limits<double>::quiet_NaN());
+    summary.finalVacuumPa = object.value(QStringLiteral("finalVacuumPa")).toDouble(
+        std::numeric_limits<double>::quiet_NaN());
+    summary.alarmCount = object.value(QStringLiteral("alarmCount")).toInt();
+    return summary;
 }
 
 void DataLogger::onSampleReady(double epochSec, double vacuumPa, double tempK,
                                const QString &phase)
 {
     // 每条遥测写入时间、温度、压强和阶段；这是文本导出的主要数据来源。
+    if (m_lifecycleSeen && !m_runActive)
+        return;
     if (!ensureAutoSession())
         return;
+
+    m_hasSample = true;
+    if (m_runActive) {
+        m_activeSummary.directory = m_runDirectory;
+        m_activeSummary.lastPhase = phase;
+        m_activeSummary.finalVacuumPa = vacuumPa;
+        if (!std::isfinite(m_activeSummary.lowestTemperatureK)
+            || tempK < m_activeSummary.lowestTemperatureK) {
+            m_activeSummary.lowestTemperatureK = tempK;
+        }
+    }
 
     const QDateTime time = QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(epochSec * 1000.0));
     const QString row = QStringLiteral("%1,%2,%3,%4\n")
@@ -138,6 +248,9 @@ void DataLogger::onSampleReady(double epochSec, double vacuumPa, double tempK,
                                  QString::number(vacuumPa, 'f', 6),
                                  csvEscape(phase));
     m_telemetryFile.write(row.toUtf8());
+    // 立即落盘后再判断可导出状态，避免缓冲区尚未刷新时误判为空记录。
+    m_telemetryFile.flush();
+    emit exportAvailabilityChanged(hasExportableRun());
 }
 
 void DataLogger::appendEvent(const QString &severity, const QString &message)
@@ -153,12 +266,53 @@ void DataLogger::appendEvent(const QString &severity, const QString &message)
 
 void DataLogger::appendLog(const QString &message)
 {
+    // 已接入流程状态后，只有实际运行中的消息才允许创建记录目录。
+    if (m_lifecycleSeen && !m_runActive)
+        return;
     appendEvent(QStringLiteral("信息"), message);
     if (!m_diagnosticsFile.isOpen())
         return;
     const QString line = QStringLiteral("%1 %2\n")
                              .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs), message);
     m_diagnosticsFile.write(line.toUtf8());
+}
+
+void DataLogger::onProcessSnapshot(const ProcessSnapshot &snapshot)
+{
+    m_lifecycleSeen = true;
+    if (snapshot.state == SystemState::Preparing && !m_runActive)
+        startRun();
+    if (m_runActive && snapshot.state == SystemState::Fault) {
+        finishRun(QStringLiteral("故障"), snapshot);
+    } else if (m_runActive && snapshot.state == SystemState::Idle
+               && m_lastSnapshot.state != SystemState::Idle) {
+        const bool interrupted = std::any_of(m_lastSnapshot.steps.cbegin(), m_lastSnapshot.steps.cend(),
+                                             [](StepState state) { return state == StepState::Interrupted; });
+        finishRun(interrupted ? QStringLiteral("正常停止") : QStringLiteral("完成"), snapshot);
+    }
+    m_lastSnapshot = snapshot;
+}
+
+void DataLogger::onAlarmChanged(const AlarmStatus &alarm)
+{
+    if (m_runActive && alarm.active)
+        m_activeSummary.alarmCount = std::max(m_activeSummary.alarmCount, alarm.count);
+}
+
+void DataLogger::finishRun(const QString &result, const ProcessSnapshot &snapshot)
+{
+    if (!m_runActive)
+        return;
+    m_runActive = false;
+    m_activeSummary.endedAt = QDateTime::currentDateTime();
+    m_activeSummary.result = result;
+    m_activeSummary.lastPhase = snapshot.stateText;
+    if (m_hasSample && !m_runDirectory.isEmpty()) {
+        writeMetadata();
+        flush();
+        emit runFinished(m_activeSummary);
+        emit exportAvailabilityChanged(true);
+    }
 }
 
 bool DataLogger::copyFile(const QString &sourcePath, const QString &targetPath)
@@ -177,7 +331,9 @@ bool DataLogger::copyFile(const QString &sourcePath, const QString &targetPath)
 void DataLogger::exportInteractive()
 {
     // 选择遥测文件名后，同时导出同批次的事件、元数据和诊断文件。
-    if (m_runDirectory.isEmpty())
+    const QString directory = m_selectedRunDirectory.isEmpty()
+        ? m_runDirectory : m_selectedRunDirectory;
+    if (!directoryHasTelemetry(directory))
         return;
     flush();
     const QString suggested = QDir(m_autoDirectory).filePath(
@@ -187,13 +343,13 @@ void DataLogger::exportInteractive()
     if (telemetryPath.isEmpty())
         return;
 
-    copyFile(m_telemetryFile.fileName(), telemetryPath);
+    copyFile(QDir(directory).filePath(QStringLiteral("telemetry.csv")), telemetryPath);
     const QFileInfo info(telemetryPath);
     const QString base = QDir(info.absolutePath()).filePath(info.completeBaseName());
-    copyFile(m_eventsFile.fileName(), base + QStringLiteral("_events.csv"));
-    copyFile(QDir(m_runDirectory).filePath(QStringLiteral("metadata.json")),
+    copyFile(QDir(directory).filePath(QStringLiteral("events.csv")), base + QStringLiteral("_events.csv"));
+    copyFile(QDir(directory).filePath(QStringLiteral("metadata.json")),
              base + QStringLiteral("_metadata.json"));
-    copyFile(m_diagnosticsFile.fileName(), base + QStringLiteral("_diagnostics.log"));
+    copyFile(QDir(directory).filePath(QStringLiteral("diagnostics.log")), base + QStringLiteral("_diagnostics.log"));
 }
 
 void DataLogger::flush()

@@ -5,6 +5,8 @@
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QListWidget>
+#include <QPushButton>
+#include <QSignalSpy>
 #include <QtTest>
 
 class OperatorDetailTest : public QObject
@@ -15,6 +17,8 @@ private slots:
     void dianJiMeiGeBuZhouXianShiDuiYingXiangQing();
     void jiangWenSuLvDanCiDiaoJieWeiLingDianWu();
     void zongLanYunXingJiLuBaoLiuLiShiXiaoXi();
+    void qiDongBuKeYongShiXianShiYuanYinQieBuFaChuQingQiu();
+    void tongXinZhongDuanShiZongLanXianShiTongXinYiChang();
 };
 
 void OperatorDetailTest::dianJiMeiGeBuZhouXianShiDuiYingXiangQing()
@@ -78,7 +82,7 @@ void OperatorDetailTest::zongLanYunXingJiLuBaoLiuLiShiXiaoXi()
     QListWidget *overviewEvents = nullptr;
     for (QListWidget *eventList : eventLists) {
         if (eventList->count() == 1
-            && eventList->item(0)->text() == QStringLiteral("等待自动流程启动")) {
+            && eventList->item(0)->text() == QStringLiteral("暂无运行记录")) {
             overviewEvents = eventList;
             break;
         }
@@ -95,6 +99,48 @@ void OperatorDetailTest::zongLanYunXingJiLuBaoLiuLiShiXiaoXi()
     QCOMPARE(overviewEvents->count(), 6);
     QCOMPARE(overviewEvents->item(0)->text(), QStringLiteral("记录 1"));
     QCOMPARE(overviewEvents->item(5)->text(), QStringLiteral("记录 6"));
+}
+
+void OperatorDetailTest::qiDongBuKeYongShiXianShiYuanYinQieBuFaChuQingQiu()
+{
+    OperatorWidget widget;
+    ProcessSnapshot snapshot;
+    snapshot.state = SystemState::Idle;
+    snapshot.commands.canStart = false;
+    snapshot.commands.startReason = QStringLiteral("真空条件尚未满足");
+    widget.onProcessSnapshot(snapshot);
+
+    QPushButton *startButton = nullptr;
+    for (QPushButton *button : widget.findChildren<QPushButton *>()) {
+        if (button->text() == QStringLiteral("一键启动系统")) {
+            startButton = button;
+            break;
+        }
+    }
+    QVERIFY(startButton);
+    QVERIFY(!startButton->isEnabled());
+
+    QLabel *reason = widget.findChild<QLabel *>(QStringLiteral("CommandReason"));
+    QVERIFY(reason);
+    QCOMPARE(reason->text(), QStringLiteral("真空条件尚未满足"));
+
+    QSignalSpy requested(&widget, &OperatorWidget::startRequested);
+    QTest::mouseClick(startButton, Qt::LeftButton);
+    QCOMPARE(requested.count(), 0);
+}
+
+void OperatorDetailTest::tongXinZhongDuanShiZongLanXianShiTongXinYiChang()
+{
+    OperatorWidget widget;
+    ProcessSnapshot snapshot;
+    snapshot.state = SystemState::Idle;
+    snapshot.commands.canStart = true;
+    widget.onProcessSnapshot(snapshot);
+    widget.onCommunicationChanged(false);
+
+    QLabel *state = widget.findChild<QLabel *>(QStringLiteral("SystemStateValue"));
+    QVERIFY(state);
+    QCOMPARE(state->text(), QStringLiteral("通信异常"));
 }
 
 QTEST_MAIN(OperatorDetailTest)

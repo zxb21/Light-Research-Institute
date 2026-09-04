@@ -129,12 +129,38 @@ target_include_directories(test_operator_detail PRIVATE ${CMAKE_CURRENT_SOURCE_D
 target_link_libraries(test_operator_detail PRIVATE Qt6::Widgets Qt6::Test)
 add_test(NAME test_operator_detail COMMAND test_operator_detail)
 
+qt_add_executable(test_main_window
+    tests/test_main_window.cpp
+    MainWindow.h
+    MainWindow.cpp
+    OperatorWidget.h
+    OperatorWidget.cpp
+    OperatorComponents.h
+    OperatorComponents.cpp
+    EngineerWidget.h
+    EngineerWidget.cpp
+    SystemTypes.h
+    SystemController.h
+    ProcessStateMachine.h
+    ProcessStateMachine.cpp
+    MockSystem.h
+    MockSystem.cpp
+    TelemetryStore.h
+    TrendChartWidget.h
+    TrendChartWidget.cpp
+    DataLogger.h
+    DataLogger.cpp
+)
+target_include_directories(test_main_window PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(test_main_window PRIVATE Qt6::Widgets Qt6::Test)
+add_test(NAME test_main_window COMMAND test_main_window)
+
 if(MSVC)
-    foreach(target cryo_low_vib test_telemetry test_data_logger test_process_state test_trend_format test_mock_system test_process_flow test_operator_detail)
+    foreach(target cryo_low_vib test_telemetry test_data_logger test_process_state test_trend_format test_mock_system test_process_flow test_operator_detail test_main_window)
         target_compile_options(${target} PRIVATE /W4 /utf-8)
     endforeach()
 else()
-    foreach(target cryo_low_vib test_telemetry test_data_logger test_process_state test_trend_format test_mock_system test_process_flow test_operator_detail)
+    foreach(target cryo_low_vib test_telemetry test_data_logger test_process_state test_trend_format test_mock_system test_process_flow test_operator_detail test_main_window)
         target_compile_options(${target} PRIVATE -Wall -Wextra)
     endforeach()
 endif()

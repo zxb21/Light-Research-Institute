@@ -28,8 +28,11 @@ signals:
     // 仅向控制器提出操作请求；界面不直接读写硬件或改变流程状态。
     void startRequested(double coolingRateKPerMin);
     void stopRequested();
+    void safetyStopRequested();
+    void resetRequested();
     void ventRequested();
     void dataExportRequested();
+    void runHistoryRequested();
 
 public slots:
     // MainWindow 将控制器发布的快照、遥测、设备状态和日志接到这些刷新入口。
@@ -37,7 +40,10 @@ public slots:
     void onTelemetryReady(const TelemetryPoint &point);
     void onDeviceStatus(const DeviceStatus &device);
     void onHighLimitChanged(double pa);
+    void onCommunicationChanged(bool connected);
     void onLogMessage(const QString &message);
+    void onExportAvailabilityChanged(bool available);
+    void onRunFinished(const RunSummary &summary);
 
 private:
     // 构建两个内部页面及主界面的三个独立面板。
@@ -71,6 +77,7 @@ private:
     QLabel *m_pressureValue = nullptr;
     QLabel *m_pressureLimit = nullptr;
     QLabel *m_commandReason = nullptr;
+    QLabel *m_overviewEventsTitle = nullptr;
     // 详情页：当前步骤的标题、说明、条件和趋势占位文字。
     QLabel *m_detailTitle = nullptr;
     QLabel *m_detailState = nullptr;
@@ -86,11 +93,18 @@ private:
     QPushButton *m_startButton = nullptr;
     QPushButton *m_stopButton = nullptr;
     QPushButton *m_ventButton = nullptr;
+    QPushButton *m_safetyStopButton = nullptr;
+    QPushButton *m_resetButton = nullptr;
+    QPushButton *m_exportButton = nullptr;
+    QPushButton *m_runHistoryButton = nullptr;
     // 从控制器收到的最新快照及最新遥测值；所有刷新函数以这些缓存为准。
     ProcessSnapshot m_snapshot;
     double m_temperatureK = 295.0;
     double m_pressurePa = 101325.0;
     double m_highLimitPa = 1.0e-3;
+    bool m_hasExportableRun = false;
+    bool m_runFinished = false;
+    bool m_communicationConnected = true;
     // 用户当前在详情页选中的步骤，不一定等于控制器正在执行的步骤。
     ProcessStep m_detailStep = ProcessStep::Preparation;
 };

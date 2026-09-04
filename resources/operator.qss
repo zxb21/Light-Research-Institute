@@ -43,6 +43,8 @@ QPushButton#WarningButton { color: #A9680B; border-color: #D88710; background: #
 QPushButton#VentButton { color: #A9680B; border-color: #E0A13B; background: #FFFBF3; }
 QPushButton#NeutralButton { color: #405169; border-color: #AEB9C7; }
 QPushButton#HeaderButton { min-height: 30px; padding: 0 12px; color: #1F6FD1; }
+QPushButton#HeaderAlarm { min-height: 30px; padding: 0 12px; color: #16885C; border: 0; }
+QPushButton#HeaderAlarm[state="danger"] { color: #D83A3A; font-weight: 700; }
 QPushButton#PrimaryButton:disabled,
 QPushButton#WarningButton:disabled,
 QPushButton#VentButton:disabled,

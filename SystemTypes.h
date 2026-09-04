@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
 
 // 压强的唯一显示格式入口：真空计、主界面摘要和趋势图都应调用这里。
 // 修改系数精度、上标样式或单位前缀时，只改此函数即可保持三处一致。
@@ -141,6 +142,19 @@ struct AlarmStatus
     int deviceIndex = -1;
 };
 
+// 单次自动运行写入 metadata.json 的最小摘要；旧目录缺字段时界面显示“暂无数据”。
+struct RunSummary
+{
+    QDateTime startedAt;
+    QDateTime endedAt;
+    QString result;
+    QString lastPhase;
+    double lowestTemperatureK = std::numeric_limits<double>::quiet_NaN();
+    double finalVacuumPa = std::numeric_limits<double>::quiet_NaN();
+    int alarmCount = 0;
+    QString directory;
+};
+
 struct FaultRecord
 {
     // 安全停止时保留下来的故障现场，供复位前诊断和界面提示使用。
@@ -176,6 +190,7 @@ Q_DECLARE_METATYPE(CommandAvailability)
 Q_DECLARE_METATYPE(ProcessSnapshot)
 Q_DECLARE_METATYPE(DeviceStatus)
 Q_DECLARE_METATYPE(AlarmStatus)
+Q_DECLARE_METATYPE(RunSummary)
 Q_DECLARE_METATYPE(TelemetryPoint)
 
 #endif // SYSTEMTYPES_H

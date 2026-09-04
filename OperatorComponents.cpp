@@ -69,8 +69,8 @@ QColor healthColor(DeviceHealth health)
 {
     // 设备状态灯与文字共用此颜色，修改健康状态配色可从这里开始。
     switch (health) {
-    case DeviceHealth::Normal:
-    case DeviceHealth::Running: return QColor(QStringLiteral("#16A36A"));
+    case DeviceHealth::Normal: return QColor(QStringLiteral("#16805C"));
+    case DeviceHealth::Running: return QColor(QStringLiteral("#1F6FD1"));
     case DeviceHealth::Standby: return QColor(QStringLiteral("#7B8A9E"));
     case DeviceHealth::Warning: return QColor(QStringLiteral("#D88710"));
     case DeviceHealth::Fault: return QColor(QStringLiteral("#D83A3A"));
@@ -185,18 +185,10 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
                              QPointF(nodeX, centerY + rowHeight - 11));
         }
 
-        // “进行中”与“用户选中查看详情”是不同概念，二者都需要背景提示。
-        if (state == StepState::Active || i == m_selectedStep) {
+        // 只给真正执行中的步骤蓝色背景，避免“选中查看”和“正在执行”看起来相同。
+        if (state == StepState::Active) {
             painter.setPen(Qt::NoPen);
-            painter.setBrush(state == StepState::Active
-                                 ? QColor(QStringLiteral("#EAF3FE"))
-                                 : QColor(QStringLiteral("#F3F7FC")));
-            painter.drawRoundedRect(QRectF(12, centerY - 20, width() - 24, 42), 6, 6);
-        }
-
-        if (hasFocus() && i == m_selectedStep) {
-            painter.setPen(QPen(QColor(QStringLiteral("#1F6FD1")), 1.5));
-            painter.setBrush(Qt::NoBrush);
+            painter.setBrush(QColor(QStringLiteral("#EAF3FE")));
             painter.drawRoundedRect(QRectF(12, centerY - 20, width() - 24, 42), 6, 6);
         }
 
