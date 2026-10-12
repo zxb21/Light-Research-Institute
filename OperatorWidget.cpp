@@ -14,6 +14,8 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QPushButton>
 #include <QStackedWidget>
@@ -29,6 +31,21 @@ QLabel *makeLabel(const QString &text, const char *objectName, QWidget *parent =
     auto *result = new QLabel(text, parent);
     result->setObjectName(QLatin1String(objectName));
     return result;
+}
+
+QIcon fluentIcon(ushort glyph, const QColor &color, int pixels)
+{
+    // 顶部工具按钮和安全按钮复用 Windows 图标库，颜色由调用处明确指定。
+    QPixmap pixmap(pixels, pixels);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+    painter.setPen(color);
+    QFont font(QStringLiteral("Segoe MDL2 Assets"));
+    font.setPixelSize(pixels - 2);
+    painter.setFont(font);
+    painter.drawText(pixmap.rect(), Qt::AlignCenter, QString(QChar(glyph)));
+    return QIcon(pixmap);
 }
 
 QString stepName(ProcessStep step)
@@ -68,16 +85,26 @@ QString stepDescription(ProcessStep step)
     return QString();
 }
 
-QString stepCondition(const ProcessSnapshot &snapshot)
+QString stepCondition(ProcessStep step)
 {
-    // 详情页条件优先显示故障、运行、放空等特殊状态，其余情况复用控制器描述。
-    if (snapshot.state == SystemState::Fault || snapshot.state == SystemState::ResetRequired)
-        return QStringLiteral("当前条件：存在故障或复位条件，自动流程已停止。请检查设备事件记录。");
-    if (snapshot.state == SystemState::Running)
-        return QStringLiteral("当前条件：温度和真空稳定，实验运行中。");
-    if (snapshot.state == SystemState::ReadyToVent)
-        return QStringLiteral("当前条件：已回到室温安全区，可确认室温放空。");
-    return QStringLiteral("当前条件：%1").arg(snapshot.detailText);
+    // 此处只说明被查看步骤的切换门限；实时状态说明不再伪装成“下一步条件”。
+    switch (step) {
+    case ProcessStep::Preparation:
+        return QStringLiteral("通信、真空计、温控仪和保护条件均正常后，自动进入粗抽真空。");
+    case ProcessStep::RoughVacuum:
+        return QStringLiteral("腔体压强降至粗抽门限以下后，自动启动分子泵并进入高真空建立。");
+    case ProcessStep::HighVacuum:
+        return QStringLiteral("腔体压强降至高真空门限以下后，关闭前级阀、打开主真空通路并进入预冷。");
+    case ProcessStep::PreCooling:
+        return QStringLiteral("制冷系统完成预冷准备后，自动进入深冷。");
+    case ProcessStep::DeepCooling:
+        return QStringLiteral("样品温度降至目标温度后，自动进入恒温稳定阶段。");
+    case ProcessStep::StabilizeAndRun:
+        return QStringLiteral("温度进入稳定区间并保持稳定后，自动进入实验运行。");
+    case ProcessStep::VentAndRecover:
+        return QStringLiteral("设备输出安全关闭且样品回到室温安全区后，允许确认放空；放空完成后自动恢复待机。");
+    }
+    return QString();
 }
 
 QString stepStateText(StepState state)
@@ -221,13 +248,16 @@ QWidget *OperatorWidget::buildSystemStatusPanel()
     // 摘要区的标签在 refreshSummary() 中更新；这里仅决定三栏布局和初始样式名。
     auto *panel = new QFrame(this);
     panel->setObjectName(QStringLiteral("IndustrialPanel"));
-    panel->setMinimumHeight(158);
+    // 原 158 像素高度会在三栏文字下方留下大块空白；压缩后的空间会由设备栏和记录区使用。
+    panel->setFixedHeight(132);
+    panel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto *layout = new QHBoxLayout(panel);
     layout->setContentsMargins(20, 16, 20, 16);
     layout->setSpacing(20);
 
     auto *stateBlock = new QVBoxLayout;
     stateBlock->setSpacing(5);
+    stateBlock->addStretch();
     stateBlock->addWidget(makeLabel(QStringLiteral("系统当前状态"), "MetricCaption", panel));
     m_stateValue = makeLabel(QStringLiteral("待机"), "SystemStateValue", panel);
     stateBlock->addWidget(m_stateValue);
@@ -247,6 +277,7 @@ QWidget *OperatorWidget::buildSystemStatusPanel()
                                             QLabel *&lineOne, QLabel *&lineTwo) {
         auto *block = new QVBoxLayout;
         block->setSpacing(5);
+        block->addStretch();
         block->addWidget(makeLabel(title, "MetricCaption", panel));
         value = makeLabel(QStringLiteral("--"), "IndustrialMetricValue", panel);
         block->addWidget(value);
@@ -272,64 +303,144 @@ QWidget *OperatorWidget::buildSystemStatusPanel()
 
 QWidget *OperatorWidget::buildControlPanel()
 {
-    // 控制区只保留操作员允许的三项操作；按钮可用性由 refreshCommands() 决定。
+    // 控制区采用“工具带 + 连续流程操作轨 + 独立安全区”。
+    // 正常动作按真实顺序连成一个整体，安全停止单独隔开，避免再退化成两排按钮罗列。
+    // 所有按钮只改变可用状态，不改变位置或可见性，具体权限由 refreshCommands() 决定。
     auto *panel = new QFrame(this);
     panel->setObjectName(QStringLiteral("IndustrialPanel"));
-    panel->setMinimumHeight(144);
+    // 恢复按钮布局改造前的 144 像素总高度，把垂直空间留给上方运行记录。
+    // 内部仍保留“工具区 + 分隔线 + 流程区”的一甲结构，只压缩各部分高度。
+    panel->setFixedHeight(144);
+    panel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     auto *layout = new QVBoxLayout(panel);
-    layout->setContentsMargins(16, 12, 16, 12);
-    layout->setSpacing(8);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
 
-    auto *commandRow = new QHBoxLayout;
-    commandRow->setSpacing(10);
-    commandRow->addWidget(makeLabel(QStringLiteral("降温速率"), "ControlLabel", panel));
-    m_coolingRate = new QDoubleSpinBox(panel);
+    // 顶部只放参数和记录类工具，它们不与下方流程动作争夺视觉重点。
+    auto *toolSection = new QWidget(panel);
+    toolSection->setFixedHeight(53);
+    auto *toolRow = new QHBoxLayout(toolSection);
+    toolRow->setContentsMargins(26, 6, 20, 7);
+    toolRow->setSpacing(10);
+    toolRow->addWidget(makeLabel(QStringLiteral("降温速率"), "ControlLabel", toolSection));
+    m_coolingRate = new QDoubleSpinBox(toolSection);
     m_coolingRate->setRange(0.1, 5.0);
     m_coolingRate->setDecimals(1);
     // 修改操作员每次点箭头增加多少温度速率，在这里调整。
     m_coolingRate->setSingleStep(0.5);
     m_coolingRate->setValue(1.0);
     m_coolingRate->setSuffix(QStringLiteral(" K/min"));
-    m_coolingRate->setMinimumWidth(132);
+    m_coolingRate->setFixedWidth(144);
     m_coolingRate->setAccessibleName(QStringLiteral("降温速率，单位开尔文每分钟"));
-    commandRow->addWidget(m_coolingRate);
-    commandRow->addStretch();
+    toolRow->addWidget(m_coolingRate);
+    toolRow->addStretch();
 
-    const auto addButton = [panel, commandRow](QPushButton *&button, const QString &text,
-                                        const QString &objectName, int width) {
-        button = new QPushButton(text, panel);
-        button->setObjectName(objectName);
-        button->setMinimumSize(width, 42);
-        commandRow->addWidget(button);
-    };
-    addButton(m_startButton, QStringLiteral("一键启动系统"), QStringLiteral("PrimaryButton"), 150);
-    addButton(m_stopButton, QStringLiteral("停止并受控回温"), QStringLiteral("WarningButton"), 166);
-    addButton(m_ventButton, QStringLiteral("确认室温放空"), QStringLiteral("VentButton"), 150);
-    layout->addLayout(commandRow);
-
-    auto *footerRow = new QHBoxLayout;
-    footerRow->setSpacing(14);
-    m_commandReason = makeLabel(QString(), "CommandReason", panel);
-    m_commandReason->setWordWrap(true);
-    m_commandReason->setMinimumHeight(42);
-    footerRow->addWidget(m_commandReason, 1);
-    m_safetyStopButton = new QPushButton(QStringLiteral("安全停止"), panel);
-    m_safetyStopButton->setObjectName(QStringLiteral("WarningButton"));
-    m_safetyStopButton->setMinimumSize(104, 46);
-    footerRow->addWidget(m_safetyStopButton);
-    m_resetButton = new QPushButton(QStringLiteral("复位"), panel);
-    m_resetButton->setObjectName(QStringLiteral("NeutralButton"));
-    m_resetButton->setMinimumSize(76, 46);
-    footerRow->addWidget(m_resetButton);
-    m_runHistoryButton = new QPushButton(QStringLiteral("查看运行记录"), panel);
-    m_runHistoryButton->setObjectName(QStringLiteral("NeutralButton"));
-    m_runHistoryButton->setMinimumSize(132, 46);
-    footerRow->addWidget(m_runHistoryButton);
-    m_exportButton = new QPushButton(QStringLiteral("导出运行数据"), panel);
+    m_runHistoryButton = new QPushButton(QStringLiteral("运行记录"), toolSection);
+    m_runHistoryButton->setObjectName(QStringLiteral("UtilityButton"));
+    m_runHistoryButton->setFixedSize(141, 40);
+    m_runHistoryButton->setIcon(fluentIcon(0xE9D5, QColor(QStringLiteral("#405169")), 18));
+    m_runHistoryButton->setIconSize(QSize(18, 18));
+    toolRow->addWidget(m_runHistoryButton);
+    m_exportButton = new QPushButton(QStringLiteral("导出数据"), toolSection);
     m_exportButton->setObjectName(QStringLiteral("ExportButton"));
-    m_exportButton->setMinimumSize(180, 46);
-    footerRow->addWidget(m_exportButton);
-    layout->addLayout(footerRow);
+    m_exportButton->setFixedSize(166, 40);
+    m_exportButton->setIcon(fluentIcon(0xE896, Qt::white, 18));
+    m_exportButton->setIconSize(QSize(18, 18));
+    toolRow->addWidget(m_exportButton);
+    layout->addWidget(toolSection);
+
+    // 目标图用一条完整横线分开参数工具区和主操作区。
+    auto *toolDivider = new QFrame(panel);
+    toolDivider->setObjectName(QStringLiteral("ControlToolDivider"));
+    toolDivider->setFixedHeight(1);
+    layout->addWidget(toolDivider);
+
+    auto *actionSection = new QWidget(panel);
+    auto *actionRow = new QHBoxLayout(actionSection);
+    actionRow->setContentsMargins(16, 10, 20, 10);
+    actionRow->setSpacing(12);
+
+    // 三个正常动作使用零间距布局，共享 CommandRail 外框，形成一条连续的操作流程。
+    // 修改三个动作的宽度比例、顺序或整体高度，应优先在这一段调整。
+    auto *commandRail = new FlowCommandRail(panel);
+    commandRail->setObjectName(QStringLiteral("CommandRail"));
+    commandRail->setFixedHeight(70);
+    commandRail->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+    const auto addFlowButton = [commandRail](QPushButton *&button,
+                                                         const QString &text,
+                                                         const QString &objectName,
+                                                         const QString &accessibleName,
+                                                         int step,
+                                                         FlowCommandButton::Position position,
+                                                         FlowCommandButton::Symbol symbol) {
+        button = new FlowCommandButton(text, step, position, symbol, commandRail);
+        button->setObjectName(objectName);
+        button->setFixedHeight(68);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        button->setAccessibleName(accessibleName);
+    };
+    addFlowButton(m_startButton, QStringLiteral("一键启动"), QStringLiteral("FlowStartButton"),
+                  QStringLiteral("一键启动系统"), 1, FlowCommandButton::Position::First,
+                  FlowCommandButton::Symbol::Play);
+    addFlowButton(m_stopButton, QStringLiteral("停止并受控回温"), QStringLiteral("FlowStopButton"),
+                  QStringLiteral("停止并受控回温"), 2, FlowCommandButton::Position::Middle,
+                  FlowCommandButton::Symbol::Stop);
+    addFlowButton(m_ventButton, QStringLiteral("确认室温放空"), QStringLiteral("FlowVentButton"),
+                  QStringLiteral("确认室温放空"), 3, FlowCommandButton::Position::Last,
+                  FlowCommandButton::Symbol::Vent);
+    commandRail->setButtons(static_cast<FlowCommandButton *>(m_startButton),
+                            static_cast<FlowCommandButton *>(m_stopButton),
+                            static_cast<FlowCommandButton *>(m_ventButton));
+    actionRow->addWidget(commandRail, 1);
+
+    // 安全停止不属于正常流程轨，使用单独的安全区隔离；复位固定在其下方。
+    // 两个按钮在所有状态下都保留位置，仅通过 enabled 表达当前是否允许操作。
+    auto *safetyArea = new QFrame(panel);
+    safetyArea->setObjectName(QStringLiteral("SafetyCommandArea"));
+    safetyArea->setMinimumWidth(150);
+    safetyArea->setMaximumWidth(165);
+    safetyArea->setFixedHeight(70);
+    safetyArea->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    auto *safetyLayout = new QVBoxLayout(safetyArea);
+    safetyLayout->setContentsMargins(12, 0, 0, 0);
+    safetyLayout->setSpacing(4);
+    m_safetyStopButton = new QPushButton(QStringLiteral("安全停止"), safetyArea);
+    m_safetyStopButton->setObjectName(QStringLiteral("SafetyStopButton"));
+    m_safetyStopButton->setFixedHeight(40);
+    // 系统图标库中的实心盾牌带有十字，和目标图不符；这里直接按目标绘制
+    // 实心白盾牌与红色感叹号，不改变按钮本身的红底和文字排版。
+    QPixmap safetyIconPixmap(24, 24);
+    safetyIconPixmap.fill(Qt::transparent);
+    QPainter safetyIconPainter(&safetyIconPixmap);
+    safetyIconPainter.setRenderHint(QPainter::Antialiasing);
+    QPainterPath shield;
+    shield.moveTo(12.0, 1.5);
+    shield.lineTo(21.0, 5.0);
+    shield.lineTo(21.0, 12.0);
+    shield.cubicTo(21.0, 16.5, 16.7, 20.5, 12.0, 22.5);
+    shield.cubicTo(7.3, 20.5, 3.0, 16.5, 3.0, 12.0);
+    shield.lineTo(3.0, 5.0);
+    shield.closeSubpath();
+    safetyIconPainter.setPen(Qt::NoPen);
+    safetyIconPainter.setBrush(Qt::white);
+    safetyIconPainter.drawPath(shield);
+    safetyIconPainter.setBrush(QColor(QStringLiteral("#C62828")));
+    safetyIconPainter.drawRoundedRect(QRectF(11.0, 6.0, 2.0, 8.0), 1.0, 1.0);
+    safetyIconPainter.drawEllipse(QRectF(11.0, 16.5, 2.0, 2.0));
+    m_safetyStopButton->setIcon(QIcon(safetyIconPixmap));
+    m_safetyStopButton->setIconSize(QSize(24, 24));
+    m_safetyStopButton->setAccessibleName(QStringLiteral("安全停止"));
+    safetyLayout->addWidget(m_safetyStopButton);
+    m_resetButton = new QPushButton(QStringLiteral("复位"), safetyArea);
+    m_resetButton->setObjectName(QStringLiteral("ResetButton"));
+    m_resetButton->setFixedHeight(26);
+    m_resetButton->setIcon(fluentIcon(0xE777, QColor(QStringLiteral("#8D99A8")), 17));
+    m_resetButton->setIconSize(QSize(17, 17));
+    safetyLayout->addWidget(m_resetButton);
+    actionRow->addWidget(safetyArea);
+    layout->addWidget(actionSection);
+
     // 点击后只发请求；控制器检查安全条件后才会真正推进流程。
     connect(m_startButton, &QPushButton::clicked, this, [this] {
         onLogMessage(QStringLiteral("已接受启动请求，正在进入自动流程"));
@@ -341,13 +452,14 @@ QWidget *OperatorWidget::buildControlPanel()
     connect(m_ventButton, &QPushButton::clicked, this, &OperatorWidget::confirmVent);
     connect(m_exportButton, &QPushButton::clicked, this, &OperatorWidget::showExportDialog);
     connect(m_runHistoryButton, &QPushButton::clicked, this, &OperatorWidget::runHistoryRequested);
-    QWidget::setTabOrder(m_coolingRate, m_startButton);
+    // Tab 顺序与视觉阅读顺序一致：先顶部工具带，再从左到右经过流程轨和安全区。
+    QWidget::setTabOrder(m_coolingRate, m_runHistoryButton);
+    QWidget::setTabOrder(m_runHistoryButton, m_exportButton);
+    QWidget::setTabOrder(m_exportButton, m_startButton);
     QWidget::setTabOrder(m_startButton, m_stopButton);
     QWidget::setTabOrder(m_stopButton, m_ventButton);
     QWidget::setTabOrder(m_ventButton, m_safetyStopButton);
     QWidget::setTabOrder(m_safetyStopButton, m_resetButton);
-    QWidget::setTabOrder(m_resetButton, m_runHistoryButton);
-    QWidget::setTabOrder(m_runHistoryButton, m_exportButton);
     return panel;
 }
 
@@ -389,7 +501,7 @@ QWidget *OperatorWidget::buildDetailPage()
     m_detailDescription->setWordWrap(true);
     descriptionLayout->addWidget(m_detailDescription);
     descriptionLayout->addSpacing(8);
-    descriptionLayout->addWidget(makeLabel(QStringLiteral("进入下一步条件"), "PanelSubTitle", description));
+    descriptionLayout->addWidget(makeLabel(QStringLiteral("进入下一步条件"), "PanelTitle", description));
     m_detailCondition = makeLabel(QString(), "DetailCondition", description);
     m_detailCondition->setWordWrap(true);
     descriptionLayout->addWidget(m_detailCondition);
@@ -500,7 +612,7 @@ void OperatorWidget::onRunFinished(const RunSummary &summary)
 {
     m_runFinished = true;
     m_overviewEventsTitle->setText(QStringLiteral("本次运行结果"));
-    m_overviewEvents->clear();
+    // 结束摘要继续追加到过程记录末尾，不能清空操作员刚刚看到的历史消息。
     const auto valueOrNone = [](double value, int decimals, const QString &unit) {
         return std::isfinite(value) ? QString::number(value, 'f', decimals) + unit
                                     : QStringLiteral("暂无数据");
@@ -518,6 +630,7 @@ void OperatorWidget::onRunFinished(const RunSummary &summary)
         QStringLiteral("报警数量：%1").arg(summary.alarmCount),
         QStringLiteral("数据目录：%1").arg(summary.directory.isEmpty() ? QStringLiteral("暂无数据") : summary.directory)
     });
+    m_overviewEvents->scrollToBottom();
 }
 
 void OperatorWidget::refreshSummary()
@@ -560,24 +673,22 @@ void OperatorWidget::refreshSummary()
 
 void OperatorWidget::refreshCommands()
 {
-    // CommandAvailability 由状态机计算；此处只把结果翻译为可用状态、提示和只读属性。
+    // CommandAvailability 由状态机计算；此处只翻译为可用状态、工具提示和只读属性。
+    // 安全停止与复位始终可见，不能在状态变化时调用 setVisible()，否则布局会跳动。
     const CommandAvailability &commands = m_snapshot.commands;
     m_startButton->setEnabled(commands.canStart);
     m_stopButton->setEnabled(commands.canStop);
     m_ventButton->setEnabled(commands.canVent);
     m_safetyStopButton->setEnabled(commands.canSafetyStop);
-    m_safetyStopButton->setVisible(commands.canSafetyStop);
     m_resetButton->setEnabled(commands.canReset);
-    m_resetButton->setVisible(commands.canReset || m_snapshot.state == SystemState::ResetRequired);
     m_coolingRate->setReadOnly(m_snapshot.state != SystemState::Idle);
     m_startButton->setToolTip(commands.canStart ? QString() : commands.startReason);
     m_stopButton->setToolTip(commands.canStop ? QString() : commands.stopReason);
     m_ventButton->setToolTip(commands.canVent ? QString() : commands.ventReason);
-    const bool waitingVent = m_snapshot.state == SystemState::Warming
-        || m_snapshot.state == SystemState::ReadyToVent;
-    m_commandReason->setText(!commands.canStart ? commands.startReason
-                             : waitingVent && !commands.canVent ? commands.ventReason
-                                                                 : m_snapshot.detailText);
+    m_safetyStopButton->setToolTip(commands.canSafetyStop
+                                      ? QString()
+                                      : QStringLiteral("当前没有需要安全停止的运行流程"));
+    m_resetButton->setToolTip(commands.canReset ? QString() : commands.resetReason);
 }
 
 void OperatorWidget::refreshDetail()
@@ -589,7 +700,7 @@ void OperatorWidget::refreshDetail()
     m_detailState->setText(QStringLiteral("步骤状态：%1").arg(
         stepStateText(m_snapshot.steps[static_cast<size_t>(index)])));
     m_detailDescription->setText(stepDescription(m_detailStep));
-    m_detailCondition->setText(stepCondition(m_snapshot));
+    m_detailCondition->setText(stepCondition(m_detailStep));
     m_detailTrendTitle->setText(trendTitle(m_detailStep));
     m_detailChart->setMode(trendMode(m_detailStep));
     m_detailChart->setAccessibleName(trendAccessibleName(m_detailStep));

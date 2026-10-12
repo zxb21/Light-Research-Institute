@@ -3,12 +3,53 @@
 
 #include "SystemTypes.h"
 
+#include <QFrame>
+#include <QPushButton>
 #include <QWidget>
 
 #include <array>
 
 class QKeyEvent;
 class QMouseEvent;
+class QPainterPath;
+class QResizeEvent;
+
+// “方案一甲”的三段式流程按钮。按钮自己绘制斜切边缘、步骤编号和圆形动作图标，
+// 因为普通 QSS 只能画矩形边框，无法准确得到效果图中的箭头形流程轨。
+class FlowCommandButton : public QPushButton
+{
+    Q_OBJECT
+
+public:
+    enum class Position { First, Middle, Last };
+    enum class Symbol { Play, Stop, Vent };
+
+    FlowCommandButton(const QString &text, int step, Position position, Symbol symbol,
+                      QWidget *parent = nullptr);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+
+private:
+    QPainterPath shapePath() const;
+};
+
+// 三段按钮在轨道内重叠斜切宽度，后一段的左缺口与前一段箭头共用同一条边。
+class FlowCommandRail : public QFrame
+{
+public:
+    explicit FlowCommandRail(QWidget *parent = nullptr);
+    void setButtons(FlowCommandButton *start, FlowCommandButton *stop,
+                    FlowCommandButton *vent);
+
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
+private:
+    void positionButtons();
+    std::array<FlowCommandButton *, 3> m_buttons{};
+};
 
 // 左侧七步流程的自绘控件：负责画图和把鼠标/键盘操作转换为步骤信号。
 // 它不切换页面；OperatorWidget 收到 stepActivated 后负责显示详情。

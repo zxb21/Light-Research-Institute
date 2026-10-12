@@ -80,7 +80,7 @@ void MockSystem::requestStop()
 
 void MockSystem::requestSafetyStop()
 {
-    // 工程师页保留的安全停止入口；操作员界面没有该按钮。
+    // 操作员页的安全停止入口；状态机仍会再次检查当前流程是否允许执行保护停机。
     if (!m_process.requestSafetyStop(QStringLiteral("操作员触发安全停止")))
         return;
     m_stateTicks = 0;

@@ -20,9 +20,9 @@ QLabel#HeaderStatus[state="danger"] { color: #D83A3A; font-weight: 600; }
 QLabel#ClockLabel { color: #34445A; font-family: "Cascadia Mono", "Consolas", monospace; }
 
 QFrame#VerticalSeparator { color: #D9E1EA; }
+QFrame#ControlToolDivider { background: #D9E1EA; border: 0; }
 QLabel#MetricCaption { color: #66758A; font-size: 12px; }
 QLabel#ControlLabel { color: #34445A; font-weight: 600; }
-QLabel#CommandReason { color: #66758A; font-size: 12px; }
 
 QPushButton {
     min-height: 34px;
@@ -42,13 +42,93 @@ QPushButton#PrimaryButton:hover { background: #195FB5; }
 QPushButton#WarningButton { color: #A9680B; border-color: #D88710; background: #FFFDF8; }
 QPushButton#VentButton { color: #A9680B; border-color: #E0A13B; background: #FFFBF3; }
 QPushButton#NeutralButton { color: #405169; border-color: #AEB9C7; }
+QPushButton#UtilityButton { color: #405169; border-color: #AEB9C7; background: #FFFFFF; }
 QPushButton#HeaderButton { min-height: 30px; padding: 0 12px; color: #1F6FD1; }
 QPushButton#HeaderAlarm { min-height: 30px; padding: 0 12px; color: #16885C; border: 0; }
 QPushButton#HeaderAlarm[state="danger"] { color: #D83A3A; font-weight: 700; }
 QPushButton#PrimaryButton:disabled,
 QPushButton#WarningButton:disabled,
 QPushButton#VentButton:disabled,
-QPushButton#NeutralButton:disabled {
+QPushButton#NeutralButton:disabled,
+QPushButton#UtilityButton:disabled,
+QPushButton#ExportButton:disabled {
+    color: #9AA6B5;
+    background: #F2F4F7;
+    border-color: #DDE3EA;
+}
+
+/* 连续流程操作轨：三个按钮共享外框和基线，零间距连接，不再显示为散落按钮。 */
+QFrame#CommandRail {
+    /* 斜切三角之外露出的是流程轨底色；使用禁用段底色可消除相邻按钮间的白洞。 */
+    background: #EEF2F6;
+    border: 1px solid #C9D4E1;
+    border-radius: 8px;
+}
+QPushButton#FlowStartButton,
+QPushButton#FlowStopButton,
+QPushButton#FlowVentButton {
+    padding: 0 12px;
+    border: 0;
+    border-radius: 0;
+    background: #EEF2F6;
+    color: #738195;
+    font-size: 15px;
+    font-weight: 700;
+}
+QPushButton#FlowStartButton {
+    border-top-left-radius: 7px;
+    border-bottom-left-radius: 7px;
+}
+QPushButton#FlowVentButton {
+    border-top-right-radius: 7px;
+    border-bottom-right-radius: 7px;
+}
+QPushButton#FlowStartButton:enabled { color: #FFFFFF; background: #1F6FD1; }
+QPushButton#FlowStartButton:hover:enabled { background: #195FB5; }
+QPushButton#FlowStartButton:pressed:enabled { background: #134D95; }
+QPushButton#FlowStopButton:enabled { color: #FFFFFF; background: #9A5100; }
+QPushButton#FlowStopButton:hover:enabled { background: #814300; }
+QPushButton#FlowStopButton:pressed:enabled { background: #693700; }
+QPushButton#FlowVentButton:enabled { color: #FFFFFF; background: #0F766E; }
+QPushButton#FlowVentButton:hover:enabled { background: #0B625C; }
+QPushButton#FlowVentButton:pressed:enabled { background: #084E49; }
+QPushButton#FlowStartButton:disabled,
+QPushButton#FlowStopButton:disabled,
+QPushButton#FlowVentButton:disabled {
+    color: #738195;
+    background: #EEF2F6;
+}
+QPushButton#FlowStartButton:focus,
+QPushButton#FlowStopButton:focus,
+QPushButton#FlowVentButton:focus {
+    border: 2px solid #0B3B70;
+    padding: 0 10px;
+}
+
+/* 安全动作与正常流程物理隔离；危险色只在安全停止确实可执行时出现。 */
+QFrame#SafetyCommandArea {
+    background: transparent;
+    border: 0;
+    border-left: 1px solid #D9E1EA;
+    border-radius: 0;
+}
+QPushButton#SafetyStopButton {
+    min-height: 0;
+    color: #FFFFFF;
+    background: #C62828;
+    border-color: #C62828;
+    font-size: 15px;
+    font-weight: 700;
+}
+QPushButton#SafetyStopButton:hover:enabled { background: #A92121; border-color: #A92121; }
+QPushButton#SafetyStopButton:pressed:enabled { background: #8E1C1C; border-color: #8E1C1C; }
+QPushButton#SafetyStopButton:disabled {
+    color: #8D99A8;
+    background: #ECEFF3;
+    border-color: #D7DEE6;
+}
+QPushButton#ResetButton { min-height: 0; color: #405169; background: #FFFFFF; border-color: #B8C2CF; }
+QPushButton#ResetButton:disabled {
     color: #9AA6B5;
     background: #F2F4F7;
     border-color: #DDE3EA;

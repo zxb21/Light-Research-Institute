@@ -68,7 +68,7 @@ private:
     TrendChartWidget *m_detailChart = nullptr;
     // 仅供详情趋势图读取的界面侧历史缓存。
     TelemetryStore *m_store = nullptr;
-    // 主界面摘要区：系统状态、温度、压强及操作提示。
+    // 主界面摘要区：系统状态、温度和压强。按钮不可用原因放在各自工具提示中。
     QLabel *m_stateValue = nullptr;
     QLabel *m_stateDetail = nullptr;
     QLabel *m_temperatureValue = nullptr;
@@ -76,7 +76,6 @@ private:
     QLabel *m_temperatureRate = nullptr;
     QLabel *m_pressureValue = nullptr;
     QLabel *m_pressureLimit = nullptr;
-    QLabel *m_commandReason = nullptr;
     QLabel *m_overviewEventsTitle = nullptr;
     // 详情页：当前步骤的标题、说明、条件和趋势占位文字。
     QLabel *m_detailTitle = nullptr;

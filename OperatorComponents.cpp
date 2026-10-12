@@ -2,9 +2,12 @@
 
 #include <QIcon>
 #include <QKeyEvent>
+#include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRegion>
+#include <QResizeEvent>
 
 #include <algorithm>
 
@@ -93,6 +96,188 @@ QString healthText(DeviceHealth health)
 }
 
 } // namespace
+
+FlowCommandButton::FlowCommandButton(const QString &text, int step, Position position,
+                                     Symbol symbol, QWidget *parent)
+    : QPushButton(text, parent)
+{
+    // 属性只保存绘制所需的三个稳定值，避免再维护一套与按钮状态重复的数据。
+    setProperty("flowStep", step);
+    setProperty("flowPosition", static_cast<int>(position));
+    setProperty("flowSymbol", static_cast<int>(symbol));
+    setCursor(Qt::PointingHandCursor);
+}
+
+void FlowCommandButton::paintEvent(QPaintEvent *)
+{
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::TextAntialiasing);
+
+    const Position position = static_cast<Position>(property("flowPosition").toInt());
+    const Symbol symbol = static_cast<Symbol>(property("flowSymbol").toInt());
+    const bool active = isEnabled();
+    const bool pressed = isDown();
+    const bool hovered = underMouse();
+    QColor fill(QStringLiteral("#EEF2F6"));
+    QColor foreground(QStringLiteral("#75849A"));
+    if (active) {
+        if (position == Position::First)
+            fill = QColor(pressed ? QStringLiteral("#134D95")
+                                  : hovered ? QStringLiteral("#195FB5")
+                                            : QStringLiteral("#1F6FD1"));
+        else if (symbol == Symbol::Stop)
+            fill = QColor(pressed ? QStringLiteral("#693700")
+                                  : hovered ? QStringLiteral("#814300")
+                                            : QStringLiteral("#9A5100"));
+        else
+            fill = QColor(pressed ? QStringLiteral("#084E49")
+                                  : hovered ? QStringLiteral("#0B625C")
+                                            : QStringLiteral("#0F766E"));
+        foreground = Qt::white;
+    }
+
+    const QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
+    const QPainterPath shape = shapePath();
+    painter.setPen(QPen(QColor(QStringLiteral("#C9D4E1")), 1.0));
+    if (active && position == Position::First && !pressed && !hovered) {
+        QLinearGradient startFill(r.topLeft(), r.topRight());
+        startFill.setColorAt(0.0, QColor(QStringLiteral("#2879D8")));
+        startFill.setColorAt(1.0, QColor(QStringLiteral("#1763C5")));
+        painter.setBrush(startFill);
+    } else {
+        painter.setBrush(fill);
+    }
+    painter.drawPath(shape);
+
+    constexpr qreal cut = 14.0;
+    const qreal leftInset = position == Position::First ? 0.0 : 10.0;
+    const QPointF stepCenter(leftInset + 21.0, r.center().y());
+    const QPointF symbolCenter(leftInset + 57.0, r.center().y());
+    painter.setBrush(Qt::NoBrush);
+    painter.setPen(QPen(foreground, 1.5));
+    painter.drawEllipse(stepCenter, 8.0, 8.0);
+    painter.drawEllipse(symbolCenter, 19.0, 19.0);
+
+    QFont stepFont = font();
+    stepFont.setPixelSize(11);
+    stepFont.setWeight(QFont::DemiBold);
+    painter.setFont(stepFont);
+    painter.drawText(QRectF(stepCenter.x() - 8, stepCenter.y() - 8, 16, 16),
+                     Qt::AlignCenter, QString::number(property("flowStep").toInt()));
+
+    // Segoe MDL2 Assets 是当前 Windows 自带的图标库，避免用文本符号冒充操作图标。
+    QFont iconFont(QStringLiteral("Segoe MDL2 Assets"));
+    iconFont.setPixelSize(symbol == Symbol::Stop ? 16 : 19);
+    painter.setFont(iconFont);
+    if (symbol == Symbol::Vent) {
+        // 官方图标字体允许图标叠加；云形与向上箭头叠放后对应目标图的“放空”图标。
+        painter.drawText(QRectF(symbolCenter.x() - 19, symbolCenter.y() - 22, 38, 34),
+                         Qt::AlignCenter, QString(QChar(0xE753)));
+        iconFont.setPixelSize(11);
+        painter.setFont(iconFont);
+        painter.drawText(QRectF(symbolCenter.x() - 19, symbolCenter.y() - 4, 38, 25),
+                         Qt::AlignCenter, QString(QChar(0xE74A)));
+    } else {
+        const QString glyph = symbol == Symbol::Play ? QString(QChar(0xE768))
+                                                      : QString(QChar(0xE71A));
+        painter.drawText(QRectF(symbolCenter.x() - 19, symbolCenter.y() - 19, 38, 38),
+                         Qt::AlignCenter, glyph);
+    }
+
+    QFont textFont = font();
+    textFont.setPixelSize(14);
+    textFont.setWeight(QFont::DemiBold);
+    painter.setFont(textFont);
+    const qreal textLeft = leftInset + 84.0;
+    painter.drawText(QRectF(textLeft, 0, width() - textLeft - cut, height()),
+                     Qt::AlignLeft | Qt::AlignVCenter, text());
+
+    if (hasFocus()) {
+        painter.setPen(QPen(QColor(QStringLiteral("#0B3B70")), 2.0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(shape);
+    }
+}
+
+QPainterPath FlowCommandButton::shapePath() const
+{
+    // 中、末段左边使用与前一段箭头完全相同的折线；配合轨道中的 14 像素重叠，
+    // 两个色块会像拼图一样共用边界，不再出现直边或空白三角。
+    constexpr qreal cut = 14.0;
+    constexpr qreal radius = 7.0;
+    const QRectF r = rect().adjusted(0.5, 0.5, -0.5, -0.5);
+    const Position position = static_cast<Position>(property("flowPosition").toInt());
+    QPainterPath shape;
+    if (position == Position::First) {
+        shape.moveTo(r.left() + radius, r.top());
+        shape.lineTo(r.right() - cut, r.top());
+        shape.lineTo(r.right(), r.center().y());
+        shape.lineTo(r.right() - cut, r.bottom());
+        shape.lineTo(r.left() + radius, r.bottom());
+        shape.quadTo(r.left(), r.bottom(), r.left(), r.bottom() - radius);
+        shape.lineTo(r.left(), r.top() + radius);
+        shape.quadTo(r.left(), r.top(), r.left() + radius, r.top());
+    } else {
+        shape.moveTo(r.left(), r.top());
+        if (position == Position::Middle) {
+            shape.lineTo(r.right() - cut, r.top());
+            shape.lineTo(r.right(), r.center().y());
+            shape.lineTo(r.right() - cut, r.bottom());
+        } else {
+            shape.lineTo(r.right() - radius, r.top());
+            shape.quadTo(r.right(), r.top(), r.right(), r.top() + radius);
+            shape.lineTo(r.right(), r.bottom() - radius);
+            shape.quadTo(r.right(), r.bottom(), r.right() - radius, r.bottom());
+        }
+        shape.lineTo(r.left(), r.bottom());
+        shape.lineTo(r.left() + cut, r.center().y());
+    }
+    shape.closeSubpath();
+    return shape;
+}
+
+void FlowCommandButton::resizeEvent(QResizeEvent *event)
+{
+    QPushButton::resizeEvent(event);
+    // 控件矩形会互相重叠；掩模让箭头区域仍由前一段接收点击，避免误触后一段。
+    setMask(QRegion(shapePath().toFillPolygon().toPolygon()));
+}
+
+FlowCommandRail::FlowCommandRail(QWidget *parent)
+    : QFrame(parent)
+{
+}
+
+void FlowCommandRail::setButtons(FlowCommandButton *start, FlowCommandButton *stop,
+                                 FlowCommandButton *vent)
+{
+    m_buttons = {start, stop, vent};
+    positionButtons();
+}
+
+void FlowCommandRail::resizeEvent(QResizeEvent *event)
+{
+    QFrame::resizeEvent(event);
+    positionButtons();
+}
+
+void FlowCommandRail::positionButtons()
+{
+    if (!m_buttons[0])
+        return;
+
+    constexpr int overlap = 14;
+    const int innerWidth = qMax(0, width() - 2);
+    const int totalButtonWidth = innerWidth + overlap * 2;
+    const int firstWidth = totalButtonWidth / 3;
+    const int secondWidth = totalButtonWidth / 3;
+    const int thirdWidth = totalButtonWidth - firstWidth - secondWidth;
+    m_buttons[0]->setGeometry(1, 1, firstWidth, height() - 2);
+    m_buttons[1]->setGeometry(1 + firstWidth - overlap, 1, secondWidth, height() - 2);
+    m_buttons[2]->setGeometry(1 + firstWidth + secondWidth - overlap * 2, 1,
+                              thirdWidth, height() - 2);
+}
 
 ProcessFlowWidget::ProcessFlowWidget(QWidget *parent)
     : QWidget(parent)
@@ -240,6 +425,10 @@ void ProcessFlowWidget::paintEvent(QPaintEvent *)
     }
 
     const QRectF detailHint(18, height() - 40, width() - 36, 26);
+    // 前面绘制流程节点时会根据最后一步状态切换画刷。这里必须明确关闭填充，
+    // 否则停止、回温或故障后，提示框会错误继承第七步的橙色、青色或红色背景。
+    // 提示框只表达“这里可以点击”，因此始终保持白底（面板底色）和蓝色边框。
+    painter.setBrush(Qt::NoBrush);
     painter.setPen(QColor(QStringLiteral("#1F6FD1")));
     painter.drawRoundedRect(detailHint, 5, 5);
     painter.drawText(detailHint, Qt::AlignCenter, QStringLiteral("点击任一步骤查看该步骤详情"));
@@ -299,8 +488,8 @@ DeviceHealthWidget::DeviceHealthWidget(QWidget *parent)
     : QWidget(parent)
 {
     // 初始值全部设为离线，直到控制器逐个发布七设备状态。
-    setMinimumHeight(88);
-    setMaximumHeight(96);
+    // 摘要区释放出的空间用于把设备栏从 88 像素增至 104 像素，避免图标和文字拥挤。
+    setFixedHeight(104);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     setAccessibleName(QStringLiteral("七设备健康状态"));
     for (int i = 0; i < 7; ++i) {
@@ -340,34 +529,52 @@ void DeviceHealthWidget::paintEvent(QPaintEvent *)
         }
 
         const QColor color = healthColor(device.health);
-        QIcon(kDeviceIcons.at(i)).paint(&painter,
-                                        QRect(static_cast<int>(item.left() + 12), 30, 26, 26));
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(color);
-        painter.drawEllipse(QPointF(item.left() + 18, 16), 4, 4);
-
         QFont nameFont = font();
         nameFont.setPixelSize(13);
         nameFont.setWeight(QFont::DemiBold);
-        painter.setFont(nameFont);
-        painter.setPen(QColor(QStringLiteral("#142033")));
-        painter.drawText(QRectF(item.left() + 28, 5, item.width() - 35, 22),
-                         Qt::AlignLeft | Qt::AlignVCenter, device.name);
+        const QFontMetricsF nameMetrics(nameFont);
+        const qreal nameWidth = nameMetrics.horizontalAdvance(device.name);
 
         QFont statusFont = font();
         statusFont.setPixelSize(12);
-        painter.setFont(statusFont);
-        painter.setPen(color);
-        painter.drawText(QRectF(item.left() + 46, 29, item.width() - 52, 18),
-                         Qt::AlignLeft | Qt::AlignVCenter, healthText(device.health));
-        painter.setPen(QColor(QStringLiteral("#66758A")));
-        // 有关键读数时优先显示 keyValue；没有时退回显示最后更新时间。
+        const QString status = healthText(device.health);
         const QString auxiliary = device.keyValue.isEmpty()
             ? (device.updatedAt.isValid()
                    ? device.updatedAt.toString(QStringLiteral("HH:mm"))
                    : QStringLiteral("--:--"))
             : device.keyValue;
-        painter.drawText(QRectF(item.left() + 46, 48, item.width() - 52, 18),
+        const QFontMetricsF statusMetrics(statusFont);
+
+        // 每格内容由“名称行 + 图标及两行读数”组成，先计算整体尺寸，再放到格子中心。
+        constexpr qreal contentHeight = 68.0;
+        const qreal contentTop = (height() - contentHeight) / 2.0;
+        const qreal nameGroupWidth = 8.0 + 6.0 + nameWidth;
+        const qreal nameLeft = item.left() + (item.width() - nameGroupWidth) / 2.0;
+        const qreal textWidth = std::max(statusMetrics.horizontalAdvance(status),
+                                         statusMetrics.horizontalAdvance(auxiliary));
+        const qreal lowerGroupWidth = 26.0 + 8.0 + textWidth;
+        const qreal lowerLeft = item.left() + (item.width() - lowerGroupWidth) / 2.0;
+        const qreal lowerTop = contentTop + 27.0;
+
+        QIcon(kDeviceIcons.at(i)).paint(&painter,
+                                        QRect(static_cast<int>(lowerLeft),
+                                              static_cast<int>(lowerTop + 6), 26, 26));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        painter.drawEllipse(QPointF(nameLeft + 4, contentTop + 9), 4, 4);
+
+        painter.setFont(nameFont);
+        painter.setPen(QColor(QStringLiteral("#142033")));
+        painter.drawText(QRectF(nameLeft + 14, contentTop, nameWidth + 1, 18),
+                         Qt::AlignLeft | Qt::AlignVCenter, device.name);
+
+        painter.setFont(statusFont);
+        painter.setPen(color);
+        painter.drawText(QRectF(lowerLeft + 34, lowerTop, textWidth + 1, 18),
+                         Qt::AlignLeft | Qt::AlignVCenter, status);
+        painter.setPen(QColor(QStringLiteral("#66758A")));
+        // 有关键读数时优先显示 keyValue；没有时退回显示最后更新时间。
+        painter.drawText(QRectF(lowerLeft + 34, lowerTop + 20, textWidth + 1, 18),
                          Qt::AlignLeft | Qt::AlignVCenter, auxiliary);
     }
 }

@@ -105,11 +105,9 @@ main.cpp
 
 ## 当前测试与验证事实
 
-- 测试源文件位于 `tests/`，它们不会在正常运行中打开。
-- 当前 CMake 注册 7 项测试：`test_telemetry`、`test_data_logger`、`test_process_state`、`test_trend_format`、`test_mock_system`、`test_process_flow`、`test_operator_detail`。
-- 最近验证：CMake 调试构建成功；`ctest --output-on-failure -C Debug` 为 7/7 通过；主程序实际启动后持续约 5.1 秒未异常退出。
+- 已按用户要求移除测试源文件和 CMake 测试目标；当前仅构建主程序 `cryo_low_vib`。
+- 最近验证：移除测试后，Qt 6.10.2 MinGW 调试构建主程序成功；此前测试保留时的 `ctest` 7/7 通过和主程序启动约 5.1 秒未异常退出属于历史验证。
 - 曾出现 Windows 堆损坏退出码 `0xc0000374`；完整重建后未复现。若再次出现，先完整重建并按根因排障，不要随机改界面代码。
-- `test_operator_detail` 已覆盖七个步骤到详情标题和曲线模式的映射；`test_process_flow` 覆盖流程步骤点击信号。
 
 ## 当前代码质量的诚实评估
 
